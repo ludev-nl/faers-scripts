@@ -1,0 +1,114 @@
+.jukit/
+!.github
+*.pdf
+.venv
+faersData/
+
+# ======== Latex auxiliary files git ignore
+*.tar.gz
+*.zip
+*.run.xml
+*.aux
+*.fdb_latexmk
+*.synctex.gz
+*.synctex\(busy\)
+*.run.xml
+*.fls
+*.log
+*.bbl
+*.blg
+*.bcf
+*-blx.bib
+*.bbl-SAVE-ERROR
+*.bcf-SAVE-ERROR
+*.thm
+*.out
+*.toc
+*.pyg
+
+# ======== Github R template
+
+# History files
+.Rhistory
+.Rapp.history
+
+# Session Data files
+.RData
+.RDataTmp
+
+# User-specific files
+.Ruserdata
+
+# Example code in package build process
+*-Ex.R
+
+# Output files from R CMD build
+/*.tar.gz
+
+# Output files from R CMD check
+/*.Rcheck/
+
+# RStudio files
+.Rproj.user/
+
+# produced vignettes
+vignettes/*.html
+vignettes/*.pdf
+
+# OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
+.httr-oauth
+
+# knitr and R markdown default cache directories
+*_cache/
+/cache/
+
+# Temporary files created by R markdown
+*.utf8.md
+*.knit.md
+
+# R Environment Variables
+.Renviron
+
+# pkgdown site
+docs/
+
+# translation temp files
+po/*~
+
+# RStudio Connect folder
+rsconnect/
+
+# ======== New Additions for FAERS Project ========
+
+# Ignore SQLFluff cache
+.sqlfluff_cache/
+
+# Ignore FAERS data downloads (extracted ZIPs & processed data)
+faersData/
+faersData/*.zip
+faersData/*.csv
+faersData/*.txt
+faersData/*.doc
+faersData/*.pdf
+faersData/rest/
+
+# Ignore temporary Bash script logs
+*.log
+*.tmp
+
+# Ignore Bats test output
+*.bats.slow
+*.bats-failed
+bats-core/
+
+venv/
+# Ignore python caches
+__pycache__/
+__pycache__/*
+venv/
+
+# ignore local copy of faers data
+faers/
+
+# Python cache
+__pycache__/
