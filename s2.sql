@@ -62,149 +62,53 @@ END;
 $$ LANGUAGE plpgsql;
 
 /*
-Helper function to load from a config-table the different types of tables to be copied (DEMO, DRUG, REAC, INDI, RPSR, THER)
+Helper function to load from a config-table (schema_config.json)
+ the different types of tables to be copied (DEMO, DRUG, REAC, INDI, RPSR, THER)
 */
-DROP TABLE IF EXISTS faers_core_config;
-CREATE TABLE faers_core_config (
-    id SERIAL PRIMARY KEY,
-    table_name TEXT NOT NULL,       -- programmatically checked name, just for readability
-    table_prefix TEXT NOT NULL,     -- non-uppercase version of operation type (e.g., 'drug', 'reac', 'demo')
-    file_prefix TEXT NOT NULL,      -- uppercase version of operation type (e.g., 'DRUG', 'REAC', 'DEMO')
-    table_schema TEXT NOT NULL      -- full table definition text
+
+DROP TABLE IF EXISTS faers_schema_config;
+CREATE TABLE faers_schema_config (
+    table_name TEXT PRIMARY KEY,
+    schema_json JSONB NOT NULL  -- two-level map: { "YYYYQx": { "col1": "type", ... } }
 );
 
-/*
-Core operations that are repeated over year-quarter combination; load them into config function
-*/
-INSERT INTO faers_core_config (table_name, table_prefix, file_prefix, table_schema) VALUES
-('drug_from_04q1', 'drug', 'DRUG', $$
-     isr bigint, 
-     drug_seq bigint, 
-     role_cod VARCHAR(2), 
-     drugname VARCHAR(500), 
-     val_vbm int, 
-     route VARCHAR(70), 
-     dose_vbm VARCHAR(300), 
-     dechal VARCHAR(2), 
-     rechal VARCHAR(2), 
-     lot_num VARCHAR(565), 
-     exp_dt VARCHAR(200), 
-     nda_num VARCHAR(200) 
-$$),
-('drug_from_12q4', 'drug', 'DRUG', $$
-     primaryid bigint, 
-     caseid bigint, 
-     drug_seq bigint, 
-     role_cod VARCHAR(2), 
-     drugname VARCHAR(500), 
-     val_vbm int, 
-     route VARCHAR(70), 
-     dose_vbm VARCHAR(300), 
-     cum_dose_chr FLOAT(24), 
-     cum_dose_unit VARCHAR(8), 
-     dechal VARCHAR(2), 
-     rechal VARCHAR(2), 
-     lot_num VARCHAR(565), 
-     exp_dt VARCHAR(200), 
-     nda_num VARCHAR(200), 
-     dose_amt VARCHAR(15), 
-     dose_unit VARCHAR(20), 
-     dose_form VARCHAR(100) , 
-     dose_freq VARCHAR(20) 
-$$),
-('drug_from_14q3', 'drug', 'DRUG', $$
-     primaryid bigint, 
-     caseid bigint, 
-     drug_seq bigint, 
-     role_cod VARCHAR(2), 
-     drugname VARCHAR(500), 
-     prod_ai VARCHAR(800), 
-     val_vbm int, 
-     route VARCHAR(70), 
-     dose_vbm VARCHAR(300), 
-     cum_dose_chr FLOAT(24), 
-     cum_dose_unit VARCHAR(8), 
-     dechal VARCHAR(2), 
-     rechal VARCHAR(2), 
-     lot_num VARCHAR(565), 
-     exp_dt VARCHAR(200), 
-     nda_num VARCHAR(200), 
-     dose_amt VARCHAR(15), 
-     dose_unit VARCHAR(20), 
-     dose_form VARCHAR(100) , 
-     dose_freq VARCHAR(20) 
-$$),
-('drug_from_22q1', 'drug', 'DRUG', $$
-     primaryid bigint, 
-     caseid bigint, 
-     drug_seq bigint, 
-     role_cod VARCHAR(2), 
-     drugname VARCHAR(500), 
-     prod_ai VARCHAR(800), 
-     val_vbm int, 
-     route VARCHAR(70), 
-     dose_vbm VARCHAR(800), 
-     cum_dose_chr FLOAT(24), 
-     cum_dose_unit VARCHAR(8), 
-     dechal VARCHAR(2), 
-     rechal VARCHAR(2), 
-     lot_num VARCHAR(565), 
-     exp_dt VARCHAR(200), 
-     nda_num VARCHAR(200), 
-     dose_amt VARCHAR(15), 
-     dose_unit VARCHAR(20), 
-     dose_form VARCHAR(100) , 
-     dose_freq VARCHAR(20) 
-$$),
-('reac','reac', 'REAC', $$
-    isr bigint,
-    pt VARCHAR(100)
-$$),
-('demo','demo', 'DEMO', $$
-    isr BIGINT,
-    "case" BIGINT,
-    i_f_cod VARCHAR(1),
-    foll_seq VARCHAR(50),
-    image VARCHAR(10),
-    event_dt INT,
-    mfr_dt INT,
-    fda_dt INT,
-    rept_cod VARCHAR(10),
-    mfr_num VARCHAR(100),
-    mfr_sndr VARCHAR(100),
-    age VARCHAR(28),
-    age_cod VARCHAR(3),
-    gndr_cod VARCHAR(3),
-    e_sub VARCHAR(1),
-    wt VARCHAR(25),
-    wt_cod VARCHAR(20),
-    rept_dt INT,
-    occp_cod VARCHAR(10),
-    death_dt VARCHAR(1),
-    to_mfr VARCHAR(1),
-    confid VARCHAR(10)
-$$),
-('ther','ther', 'THER', $$
-    isr bigint,
-    drug_seq bigint,
-    start_dt bigint,
-    end_dt bigint,
-    dur VARCHAR(50),
-    dur_cod VARCHAR(50)
-$$),
-('rpsr','rpsr', 'RPSR', $$
-    isr bigint,
-    rpsr_cod VARCHAR(100)
-$$),
-('outc','outc', 'OUTC', $$
-    isr bigint,
-    outc_cod VARCHAR(20)
-$$),
-('indi','indi', 'INDI', $$
-    isr bigint,
-    drug_seq bigint,
-    indi_pt VARCHAR(200)
-$$);
+-- Function to determine table schema based on year-quarter
+CREATE OR REPLACE FUNCTION get_schema_for_period(table_name TEXT, year INT, quarter INT)
+RETURNS TEXT AS
+$$
+DECLARE
+    schema_rec RECORD;
+    target TEXT := LPAD(year::TEXT, 4, '0') || 'Q' || quarter;
+    best_key TEXT := NULL;
+    key TEXT;
+    def JSONB;
+    col_spec TEXT := '';
+BEGIN
+    SELECT schema_json INTO def
+    FROM faers_schema_config
+    WHERE table_name = UPPER(table_name);
+
+    IF def IS NULL THEN
+        RAISE EXCEPTION 'No schema found for table %', table_name;
+    END IF;
+
+    FOR key IN SELECT jsonb_object_keys(def) LOOP
+        IF key <= target AND (best_key IS NULL OR key > best_key) THEN
+            best_key := key;
+        END IF;
+    END LOOP;
+
+    IF best_key IS NULL THEN
+        RAISE EXCEPTION 'No schema version available for table % and period %', table_name, target;
+    END IF;
+
+    FOR schema_rec IN SELECT * FROM jsonb_each_text(def -> best_key) LOOP
+        col_spec := col_spec || format('%I %s, ', schema_rec.key, schema_rec.value);
+    END LOOP;
+
+    RETURN RTRIM(col_spec, ', ');
+END;
+$$ LANGUAGE plpgsql;
 
 /******************  CREATING RAW DATA TABLES, AND BULK INSERTION ******************************
 >>>JUST REPLACE THE FOLDER DIRECTORY, TO THE DATA LOCATION IN YOUR PC, BEFORE STARTING<<<
@@ -221,57 +125,33 @@ WHAT THIS CODE DOES:
 For all core tables from 2004Q1 to 2023Q1 , create a table and copy (bulk insert before postgresql) the data from the FAERS_MAK folder
 ******************************************/
 
--- TODO
--- I have been debugging this file by having the file buffer open in 1 window (vim / vs code), and having another
--- terminal on noah@lacdrvm:/faers-scripts/, inside a virenv with psycopyg such that i can run python3 s2.py . this gives
--- an error, i try to fix it, repeat.
-
--- current error should be psycopg.errors.BadCopyFileFormat: extra data after last expected column.
--- this is because, previously, your general "drug" schema was just the [04q1,12q4) schema, which fails
--- for the quarter 13q1 for instance. we see this in the generated SQL statement the error gives.
-
--- added table_name to fears_core_config, we can use this to get all the different versions of a single type (e.g. all drug table variations)
-
--- we need to add some logic to this function in order to discern which version of a schema we have to use.
--- since the awk script returned that for multiple types there exist different variations of schema's, we
--- would have to add some convoluted case statement to choose a different schema in this function, if
--- we want to keep it general. (OPTION A) Its probably better if we split this into multiple functions, and some
--- "arrays" discerning some type.
--- one for drugs, does (drugs_from_04q1,...,drugs_from_22q1)
--- one for different reac,
--- etc.
--- one for the rest, maybe there are some where the schema never changes?
-
--- (OPTION B), actually, maybe using case statements wouldnt be so bad, you woudl just have logic like
--- IF config.table_prefix = drug && period_full in [2004q1,2012q4), THEN schema = drug_from_04q1
--- this line a lot of times.
-
--- (OPTION C) something else? idk
-
--- up to you to choose a solution. good luck :)
--- let there be little errors after this big obstacle.
-
-CREATE OR REPLACE FUNCTION load_all_faers_core_tables(start_year INT DEFAULT 4)
+CREATE OR REPLACE FUNCTION load_all_faers_core_tables(root_dir TEXT, start_year INT DEFAULT 4)
 RETURNS void AS
 $$
 DECLARE
-    config RECORD;
     rec RECORD;
     period_upper TEXT;
     period_lower TEXT;
     period_full TEXT;
-    root_dir TEXT := {root_dir};
+    core_table TEXT;
+    table_prefix TEXT;
+    file_prefix TEXT;
+    schema_def TEXT;
     sql TEXT;
 BEGIN
-    -- Loop over each configured FAERS core type
-    FOR config IN SELECT * FROM faers_core_config ORDER BY id LOOP
-        -- Loop over each year-quarter
+    -- Core table names to process
+    FOR core_table IN SELECT DISTINCT table_name FROM faers_schema_config LOOP
+        table_prefix := lower(core_table.table_name);
+        file_prefix := upper(core_table.table_name);
+
         FOR rec IN SELECT * FROM get_completed_year_quarters(start_year) LOOP
-            -- TODO: you could a case statement here that hijacks
-            -- config.table_schema below in a local variable, and set it based on the case of the schema variation.
             period_upper := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
             period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
             period_full := '20' || LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
+
+            -- Load appropriate schema definition
+            schema_def := get_schema_for_period(core_table.table_name, rec.year + 2000, rec.quarter); -- convert short year to full
+
             sql := format($sql$
                 DROP TABLE IF EXISTS %I;
                 CREATE TABLE %I (%s);
@@ -284,443 +164,73 @@ BEGIN
                     QUOTE E'\b'
                 );
             $sql$,
-                config.table_prefix || period_lower,
-                config.table_prefix || period_lower,
-                config.table_schema,
-                config.table_prefix || period_lower,
-                root_dir || 'faers_ascii_' ||period_full || '/' || config.file_prefix || period_upper || '.txt'
+                table_prefix || period_lower,
+                table_prefix || period_lower,
+                schema_def,
+                table_prefix || period_lower,
+                root_dir || '/faers_ascii_' || period_full || '/' || file_prefix || period_upper || '.txt'
             );
-            -- this code will break after 2099.
             EXECUTE sql;
         END LOOP;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
+
 /********************************* COMBINE RAW FILES ******************************************/
 /* For each category (DRUG, REAC, INDI, DEMO, OUTCOME, RPSR) take the quarterly data and add it to the combined data under 'PERIOD' */
-
-CREATE OR REPLACE FUNCTION load_drug_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
+CREATE OR REPLACE FUNCTION combine_all_faers_tables(start_year INT DEFAULT 4)
+RETURNS void AS
+$$
 DECLARE
     rec RECORD;
-    period TEXT;
+    core_table TEXT;
+    combined_table TEXT;
+    table_prefix TEXT;
+    period_lower TEXT;
+    union_sql TEXT;
+    part_table TEXT;
+    col_list TEXT;
+    schema_def TEXT;
+    first BOOLEAN;
 BEGIN
-    -- Iterate over completed year-quarters from 2004 (year = 4)
-    FOR rec IN SELECT * FROM get_completed_year_quarters(4)
-    LOOP
-        period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
+    -- Loop over each core table type
+    FOR core_table IN SELECT DISTINCT table_name FROM faers_schema_config LOOP
+        table_prefix := lower(core_table.table_name);
+        combined_table := table_prefix || '_combined';
+        union_sql := '';
+        first := TRUE;
 
-        IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-            -- Legacy
-            EXECUTE format('
-              INSERT INTO DRUG_Combined
-              (primaryid, DRUG_SEQ, ROLE_COD, DRUGNAME, VAL_VBM, ROUTE, DOSE_VBM, DECHAL, RECHAL, LOT_NUM, EXP_DT, NDA_NUM, PERIOD)
-              SELECT 
-              ISR, DRUG_SEQ, ROLE_COD, DRUGNAME, VAL_VBM, ROUTE, DOSE_VBM, DECHAL, RECHAL, LOT_NUM, EXP_DT, NDA_NUM, %L 
-              FROM %I
-              ',
-              period,
-              'drug' || period
-            );
-        ELSE
-            -- Current
-            EXECUTE format('
-              INSERT INTO DRUG_Combined
-              (primaryid, caseid, DRUG_SEQ, ROLE_COD, DRUGNAME, VAL_VBM, ROUTE, DOSE_VBM, cum_dose_chr, cum_dose_unit,
-                DECHAL, RECHAL, LOT_NUM, EXP_DT, NDA_NUM, dose_amt, dose_unit, dose_form, dose_freq, PERIOD)
-              SELECT 
-              primaryid, caseid, DRUG_SEQ, ROLE_COD, DRUGNAME, VAL_VBM, ROUTE, DOSE_VBM, cum_dose_chr, cum_dose_unit,
-              DECHAL, RECHAL, LOT_NUM, EXP_DT, NDA_NUM, dose_amt, dose_unit, dose_form, dose_freq, %L
-              FROM %I
-              ',
-              period,
-              'drug' || period
-            );
-        END IF;
+        -- Loop over each completed year-quarter
+        FOR rec IN SELECT * FROM get_completed_year_quarters(start_year) LOOP
+            period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
+            part_table := table_prefix || period_lower;
+
+            BEGIN
+                -- Get the schema for the period to generate SELECT list
+                schema_def := get_schema_for_period(core_table.table_name, rec.year + 2000, rec.quarter);
+                col_list := '';
+                FOR schema_col IN SELECT * FROM regexp_matches(schema_def, '([^,]+)', 'g') LOOP
+                    col_list := col_list || split_part(schema_col[1], ' ', 1) || ', ';
+                END LOOP;
+                col_list := RTRIM(col_list, ', ');
+
+                IF first THEN
+                    EXECUTE format('DROP TABLE IF EXISTS %I; CREATE TABLE %I AS SELECT %s FROM %I;',
+                                   combined_table, combined_table, col_list, part_table);
+                    first := FALSE;
+                ELSE
+                    EXECUTE format('INSERT INTO %I (%s) SELECT %s FROM %I;',
+                                   combined_table, col_list, col_list, part_table);
+                END IF;
+
+            EXCEPTION WHEN OTHERS THEN
+                -- If table doesn't exist, skip (e.g., file missing for that quarter)
+                RAISE NOTICE 'Skipping %', part_table;
+            END;
+        END LOOP;
     END LOOP;
-
-    -- Final cleanup
-    UPDATE DRUG_Combined
-    SET NDA_NUM = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(NDA_NUM, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE NDA_NUM IS NOT NULL;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
------------------
-
-CREATE OR REPLACE FUNCTION load_demo_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    rec RECORD;
-    period TEXT;
-    period_lower TEXT;
-BEGIN
-    -- Iterate over completed year-quarters from 2004 (year = 4)
-    FOR rec IN SELECT * FROM get_completed_year_quarters(4)
-    LOOP
-        period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-        period_lower := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-
-        IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-          -- Legacy
-          EXECUTE format('
-            INSERT INTO DEMO_Combined
-            (primaryid, caseid, caseversion, I_F_COD, FOLL_SEQ, IMAGE, EVENT_DT, MFR_DT, FDA_DT, REPT_COD, 
-              MFR_NUM, MFR_SNDR, AGE, AGE_COD, SEX, E_SUB, WT, wt_COD, REPT_DT, OCCP_COD, DEATH_DT, TO_MFR, CONFID, PERIOD)
-            SELECT 
-            ISR, "CASE", 0, I_F_COD, FOLL_SEQ, IMAGE, EVENT_DT, MFR_DT, FDA_DT, REPT_COD, 
-            MFR_NUM, MFR_SNDR, AGE, AGE_COD, GNDR_COD, E_SUB, WT, wt_COD, REPT_DT, OCCP_COD, DEATH_DT, TO_MFR, CONFID, %L
-            FROM %I
-            ',
-            period,
-            'demo' || period_lower
-          );
-        ELSE
-          -- Current
-          EXECUTE format('
-            INSERT INTO DEMO_Combined
-            (primaryid, caseid, caseversion, I_F_COD, EVENT_DT, MFR_DT, init_fda_dt, FDA_DT, REPT_COD, 
-              MFR_NUM, MFR_SNDR, AGE, AGE_COD, SEX, E_SUB, WT, wt_COD, REPT_DT, TO_MFR, occp_cod, REPORTER_COUNTRY, PERIOD)
-            SELECT 
-            primaryid, caseid, caseversion, I_F_COD, EVENT_DT, MFR_DT, init_fda_dt, FDA_DT, REPT_COD, 
-            MFR_NUM, MFR_SNDR, AGE, AGE_COD, gndr_cod, E_SUB, WT, wt_COD, REPT_DT, TO_MFR, occp_cod, REPORTER_COUNTRY, %L
-            FROM %I
-            ',
-            period,
-            'demo' || period_lower
-          );
-        END IF;
-    END LOOP;
-
-    -- Final cleanup
-    UPDATE DEMO_Combined
-    SET CONFID = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(CONFID, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE CONFID IS NOT NULL;
-
-    UPDATE DEMO_Combined
-    SET REPORTER_COUNTRY = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(REPORTER_COUNTRY, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE REPORTER_COUNTRY IS NOT NULL;
-
-    UPDATE DEMO_Combined
-    SET occr_country = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(occr_country, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE occr_country IS NOT NULL;
-END;
-$$;
-
---------------------------------------------
-
-CREATE OR REPLACE FUNCTION load_ther_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    rec RECORD;
-    period TEXT;
-    period_lower TEXT;
-BEGIN
-    -- Iterate over completed year-quarters starting from 2004
-    FOR rec IN SELECT * FROM get_completed_year_quarters(4)
-    LOOP
-        period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-        period_lower := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-
-        IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-          -- Legacy structure
-          EXECUTE format('
-            INSERT INTO THER_Combined
-            (primaryid, dsg_drug_seq, START_DT, END_DT, DUR, DUR_COD, PERIOD)
-            SELECT 
-            ISR, DRUG_SEQ, START_DT, END_DT, DUR, DUR_COD, %L
-            FROM %I
-            ',
-            period,
-            'ther' || period_lower
-          );
-        ELSE
-          -- Current structure
-          EXECUTE format('
-            INSERT INTO THER_Combined
-            (primaryid, caseid, dsg_drug_seq, START_DT, END_DT, DUR, DUR_COD, PERIOD)
-            SELECT 
-            primaryid, caseid, dsg_drug_seq, START_DT, END_DT, DUR, DUR_COD, %L
-            FROM %I
-            ',
-            period,
-            'ther' || period_lower
-          );
-      END IF;
-    END LOOP;
-
-    -- Final cleanup
-    UPDATE THER_Combined
-    SET DUR_COD = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(DUR_COD, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE DUR_COD IS NOT NULL;
-END;
-$$;
-
-----------------------------
-
-CREATE OR REPLACE FUNCTION load_rpsr_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    rec RECORD;
-    period TEXT;
-    period_lower TEXT;
-BEGIN
-    -- Iterate over completed year-quarters starting from 2004
-    FOR rec IN SELECT * FROM get_completed_year_quarters(4)
-    LOOP
-      period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-      period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
-
-      IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-        -- Legacy structure
-        EXECUTE format('
-          INSERT INTO RPSR_Combined
-          (primaryid, RPSR_COD, PERIOD)
-          SELECT 
-          ISR, RPSR_COD, %L
-          FROM %I
-          ',
-          period,
-          'rpsr' || period_lower
-        );
-      ELSE
-        -- Current structure
-        EXECUTE format('
-          INSERT INTO RPSR_Combined
-          (primaryid, caseid, RPSR_COD, PERIOD)
-          SELECT 
-          primaryid, caseid, RPSR_COD, %L
-          FROM %I
-          ',
-          period,
-          'rpsr' || period_lower
-        );
-      END IF;
-  END LOOP;
-
-    -- Final cleanup
-    UPDATE RPSR_Combined
-    SET RPSR_COD = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(RPSR_COD, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE RPSR_COD IS NOT NULL;
-END;
-$$;
-
----------------
-
-CREATE OR REPLACE FUNCTION load_outc_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    rec RECORD;
-    period TEXT;
-    period_lower TEXT;
-BEGIN
-    -- Iterate over completed year-quarters starting from 2004
-    FOR rec IN SELECT * FROM get_completed_year_quarters(4)
-    LOOP
-        period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-        period_lower := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-
-        IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-          -- Legacy structure
-          EXECUTE format('
-            INSERT INTO OUTC_Combined
-            (primaryid, OUTC_COD, PERIOD)
-            SELECT 
-            ISR, OUTC_COD, %L
-            FROM %I
-            ',
-            period,
-            'outc' || period_lower
-          );
-        ELSE
-          -- Current structure (note: OUTC_CODE instead of OUTC_COD)
-          EXECUTE format('
-            INSERT INTO OUTC_Combined
-            (primaryid, caseid, OUTC_COD, PERIOD)
-            SELECT 
-            primaryid, caseid, OUTC_CODE, %L
-            FROM %
-            ',
-            period,
-            'outc' || period_lower
-          );
-      END IF;
-  END LOOP;
-
-    -- Final cleanup
-    UPDATE OUTC_Combined
-    SET OUTC_COD = trim(' $ ' FROM REPLACE(REPLACE(REPLACE(OUTC_COD, CHR(10), ''), CHR(13), ''), CHR(9), ''))
-    WHERE OUTC_COD IS NOT NULL;
-END;
-$$;
-
-----------------------
-
-CREATE OR REPLACE FUNCTION load_indi_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    rec RECORD;
-    period TEXT;
-    period_lower TEXT;
-BEGIN
-    -- Iterate over completed year-quarters starting from 2004
-    FOR rec IN SELECT * FROM get_completed_year_quarters(4)
-    LOOP
-        period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-        period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
-
-        IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-          -- Legacy structure
-          EXECUTE format('
-            INSERT INTO INDI_Combined
-            (primaryid, indi_drug_seq, INDI_PT, PERIOD)
-            SELECT 
-            ISR, DRUG_SEQ, INDI_PT, %L
-            FROM %I
-            ',
-            period,
-            'indi' || period_lower
-          );
-        ELSE
-          -- Modern structure
-          EXECUTE format('
-            INSERT INTO INDI_Combined
-            (primaryid, caseid, indi_drug_seq, INDI_PT, PERIOD)
-            SELECT 
-            primaryid, caseid, indi_drug_seq, INDI_PT, %L
-            FROM %I
-            ',
-            period,
-            'indi' || period_lower
-          );
-      END IF;
-  END LOOP;
-END;
-$$;
-
-------------------
-
-CREATE OR REPLACE FUNCTION load_reac_combined()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    rec RECORD;
-    period TEXT;
-    period_lower TEXT;
-BEGIN
-    -- Iterate over completed year-quarters starting from 2004
-    FOR rec IN SELECT * FROM get_completed_year_quarters(3)
-    LOOP
-        period := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-        period_lower := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
-
-        IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
-          -- Legacy structure (04Q1 - 12Q3)
-          EXECUTE format('
-            INSERT INTO REAC_Combined
-            (primaryid, PT, PERIOD)
-            SELECT 
-            ISR, PT, %L
-            FROM %I
-            ',
-            period,
-            'reac' || period_lower
-          );
-
-        ELSIF (rec.year = 12 AND rec.quarter >= 4) OR (rec.year BETWEEN 13 AND 14 AND rec.quarter <= 2) THEN
-        -- 12Q4 - 14Q2
-        EXECUTE format('
-          INSERT INTO REAC_Combined
-          (primaryid, caseid, PT, PERIOD)
-          SELECT 
-          primaryid, caseid, PT, %L
-          FROM %I
-          ',
-          period,
-          'reac' || period_lower
-        );
-
-      ELSE
-        -- Modern structure (14Q3 - current)
-        EXECUTE format('
-          INSERT INTO REAC_Combined
-          (primaryid, caseid, PT, drug_rec_act, PERIOD)
-          SELECT 
-          primaryid, caseid, PT, drug_rec_act, %L
-          FROM %I
-          ',
-          period,
-          'reac' || period_lower
-        );
-        END IF;
-    END LOOP;
-
-    -- Final cleanup
-    /* EXECUTE  format(' */
-    /*   UPDATE REAC_Combined */
-    /*   SET PT = trim('' $ '' FROM REPLACE(REPLACE(REPLACE(PT, CHAR(10), ''), CHAR(13), ''), CHAR(9), '')) */
-    /*   WHERE PT IS NOT NULL */
-    /*   '); */
-  EXECUTE format('
-    UPDATE REAC_Combined
-    SET PT = trim(''$'' FROM REPLACE(REPLACE(REPLACE(PT, CHAR(10), ''''), CHAR(13), ''''), CHAR(9), ''''))
-    WHERE PT IS NOT NULL
-    ');
-END;
-$$;
-
-/* CREATE OR REPLACE FUNCTION load_all_faers_core_tables(start_year INT DEFAULT 4) */
-/* PERFORM load_all_faers_core_tables(13); */ 
-/* PERFORM (SELECT load_all_faers_core_tables(13)); */
-/* load_all_faers_core_tables(13); */
-
--- TODO
--- FUNCTION
-/* select count(*) from faers_core_config; */
-/* EXECUTE format('load_all_faers_core_tables(13)'); */
-
-SELECT load_all_faers_core_tables(13::INT);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-- TODO: implement trimming and clean-up steps
