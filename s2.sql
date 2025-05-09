@@ -100,7 +100,7 @@ $$),
      val_vbm int, 
      route VARCHAR(70), 
      dose_vbm VARCHAR(300), 
-     cum_dose_chr FLOAT(24), 
+     cum_dose_chr FLOAT, 
      cum_dose_unit VARCHAR(8), 
      dechal VARCHAR(2), 
      rechal VARCHAR(2), 
@@ -109,7 +109,7 @@ $$),
      nda_num VARCHAR(200), 
      dose_amt VARCHAR(15), 
      dose_unit VARCHAR(20), 
-     dose_form VARCHAR(100) , 
+     dose_form VARCHAR(100), 
      dose_freq VARCHAR(20) 
 $$),
 ('drug_from_14q3', 'drug', 'DRUG', $$
@@ -122,7 +122,7 @@ $$),
      val_vbm int, 
      route VARCHAR(70), 
      dose_vbm VARCHAR(300), 
-     cum_dose_chr FLOAT(24), 
+     cum_dose_chr FLOAT, 
      cum_dose_unit VARCHAR(8), 
      dechal VARCHAR(2), 
      rechal VARCHAR(2), 
@@ -131,7 +131,7 @@ $$),
      nda_num VARCHAR(200), 
      dose_amt VARCHAR(15), 
      dose_unit VARCHAR(20), 
-     dose_form VARCHAR(100) , 
+     dose_form VARCHAR(100), 
      dose_freq VARCHAR(20) 
 $$),
 ('drug_from_22q1', 'drug', 'DRUG', $$
@@ -144,7 +144,7 @@ $$),
      val_vbm int, 
      route VARCHAR(70), 
      dose_vbm VARCHAR(800), 
-     cum_dose_chr FLOAT(24), 
+     cum_dose_chr FLOAT, 
      cum_dose_unit VARCHAR(8), 
      dechal VARCHAR(2), 
      rechal VARCHAR(2), 
@@ -153,14 +153,14 @@ $$),
      nda_num VARCHAR(200), 
      dose_amt VARCHAR(15), 
      dose_unit VARCHAR(20), 
-     dose_form VARCHAR(100) , 
+     dose_form VARCHAR(100), 
      dose_freq VARCHAR(20) 
 $$),
-('reac','reac', 'REAC', $$
+('reac', 'reac', 'REAC', $$
     isr bigint,
     pt VARCHAR(100)
 $$),
-('demo','demo', 'DEMO', $$
+('demo', 'demo', 'DEMO', $$
     isr BIGINT,
     "case" BIGINT,
     i_f_cod VARCHAR(1),
@@ -184,7 +184,7 @@ $$),
     to_mfr VARCHAR(1),
     confid VARCHAR(10)
 $$),
-('ther','ther', 'THER', $$
+('ther', 'ther', 'THER', $$
     isr bigint,
     drug_seq bigint,
     start_dt bigint,
@@ -192,15 +192,15 @@ $$),
     dur VARCHAR(50),
     dur_cod VARCHAR(50)
 $$),
-('rpsr','rpsr', 'RPSR', $$
+('rpsr', 'rpsr', 'RPSR', $$
     isr bigint,
     rpsr_cod VARCHAR(100)
 $$),
-('outc','outc', 'OUTC', $$
+('outc', 'outc', 'OUTC', $$
     isr bigint,
     outc_cod VARCHAR(20)
 $$),
-('indi','indi', 'INDI', $$
+('indi', 'indi', 'INDI', $$
     isr bigint,
     drug_seq bigint,
     indi_pt VARCHAR(200)
@@ -260,18 +260,33 @@ DECLARE
     period_upper TEXT;
     period_lower TEXT;
     period_full TEXT;
-    root_dir TEXT := {root_dir};
+    root_dir TEXT := '/faers/data/';
     sql TEXT;
+    schema_to_use TEXT;
 BEGIN
     -- Loop over each configured FAERS core type
     FOR config IN SELECT * FROM faers_core_config ORDER BY id LOOP
         -- Loop over each year-quarter
         FOR rec IN SELECT * FROM get_completed_year_quarters(start_year) LOOP
-            -- TODO: you could a case statement here that hijacks
-            -- config.table_schema below in a local variable, and set it based on the case of the schema variation.
             period_upper := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
             period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
             period_full := '20' || LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
+
+            -- Select schema based on table_prefix and year-quarter
+            IF config.table_prefix = 'drug' THEN
+                IF (rec.year < 12) OR (rec.year = 12 AND rec.quarter <= 3) THEN
+                    schema_to_use := (SELECT table_schema FROM faers_core_config WHERE table_name = 'drug_from_04q1');
+                ELSIF (rec.year = 12 AND rec.quarter = 4) OR (rec.year = 13) OR (rec.year = 14 AND rec.quarter <= 2) THEN
+                    schema_to_use := (SELECT table_schema FROM faers_core_config WHERE table_name = 'drug_from_12q4');
+                ELSIF (rec.year = 14 AND rec.quarter >= 3) OR (rec.year >= 15 AND rec.year <= 21) THEN
+                    schema_to_use := (SELECT table_schema FROM faers_core_config WHERE table_name = 'drug_from_14q3');
+                ELSE
+                    schema_to_use := (SELECT table_schema FROM faers_core_config WHERE table_name = 'drug_from_22q1');
+                END IF;
+            ELSE
+                schema_to_use := config.table_schema; -- Use default schema for non-drug tables
+            END IF;
+
             sql := format($sql$
                 DROP TABLE IF EXISTS %I;
                 CREATE TABLE %I (%s);
@@ -286,11 +301,10 @@ BEGIN
             $sql$,
                 config.table_prefix || period_lower,
                 config.table_prefix || period_lower,
-                config.table_schema,
+                schema_to_use,
                 config.table_prefix || period_lower,
-                root_dir || 'faers_ascii_' ||period_full || '/' || config.file_prefix || period_upper || '.txt'
+                root_dir || 'faers_ascii_' || period_full || '/' || config.file_prefix || period_upper || '.txt'
             );
-            -- this code will break after 2099.
             EXECUTE sql;
         END LOOP;
     END LOOP;
@@ -550,7 +564,7 @@ BEGIN
             (primaryid, caseid, OUTC_COD, PERIOD)
             SELECT 
             primaryid, caseid, OUTC_CODE, %L
-            FROM %
+            FROM %I
             ',
             period,
             'outc' || period_lower
@@ -670,21 +684,16 @@ BEGIN
     END LOOP;
 
     -- Final cleanup
-    /* EXECUTE  format(' */
-    /*   UPDATE REAC_Combined */
-    /*   SET PT = trim('' $ '' FROM REPLACE(REPLACE(REPLACE(PT, CHAR(10), ''), CHAR(13), ''), CHAR(9), '')) */
-    /*   WHERE PT IS NOT NULL */
-    /*   '); */
-  EXECUTE format('
-    UPDATE REAC_Combined
-    SET PT = trim(''$'' FROM REPLACE(REPLACE(REPLACE(PT, CHAR(10), ''''), CHAR(13), ''''), CHAR(9), ''''))
-    WHERE PT IS NOT NULL
+    EXECUTE format('
+      UPDATE REAC_Combined
+      SET PT = trim(''$'' FROM REPLACE(REPLACE(REPLACE(PT, CHAR(10), ''''), CHAR(13), ''''), CHAR(9), ''''))
+      WHERE PT IS NOT NULL
     ');
 END;
 $$;
 
 /* CREATE OR REPLACE FUNCTION load_all_faers_core_tables(start_year INT DEFAULT 4) */
-/* PERFORM load_all_faers_core_tables(13); */ 
+/* PERFORM load_all_faers_core_tables(13); */
 /* PERFORM (SELECT load_all_faers_core_tables(13)); */
 /* load_all_faers_core_tables(13); */
 
@@ -694,16 +703,6 @@ $$;
 /* EXECUTE format('load_all_faers_core_tables(13)'); */
 
 SELECT load_all_faers_core_tables(13::INT);
-
-
-
-
-
-
-
-
-
-
 
 
 
