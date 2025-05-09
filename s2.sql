@@ -723,3 +723,7 @@ SELECT load_all_faers_core_tables(13::INT);
 
 
 
+
+
+
+
