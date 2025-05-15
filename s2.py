@@ -34,5 +34,5 @@ with psycopg.connect(
     user="sa",
     host="/var/run/postgresql"
 ) as conn:
-    execute_sql_file('s2.sql', files, conn)
+    execute_sql_file('/faers-scripts/s2.sql', files, conn)
 
