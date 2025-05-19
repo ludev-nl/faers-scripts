@@ -1,27 +1,22 @@
+-- Ensure this file is saved in UTF-8 encoding without BOM
+
 /****************** CREATE FAERS_A DATABASE  ******************************/
--- TODO make this dynamic again with fallback
-/* IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = '[FAERS_A]') */
-/*   BEGIN */
-/*     CREATE DATABASE [FAERS_A] */
-/*     END */
-/*     GO */
+-- Ensure the database exists (run this separately if needed)
+-- CREATE DATABASE faers_a;
 
-/* 	USE [FAERS_A] */
-/*     GO */
-/* USE [FAERS_A] */
-/* GO */
+/****************** CONFIGURE DATABASE  ******************************/
+-- Set client encoding to UTF-8
+SET client_encoding = 'UTF8';
 
-/****************** MINIMIZE DATABASE LOG SIZE  ******************************/
-
-/* ALTER DATABASE [FAERS_A] SET RECOVERY SIMPLE; */
+-- Configure logging in postgresql.conf if needed for performance
+-- Note: PostgreSQL doesn't use ALTER DATABASE SET RECOVERY SIMPLE
 
 /*
-Function to determine the last completed year-quarter combination from the current date.
+Function to determine completed year-quarter combinations from the start year to the last completed quarter.
 */
 CREATE OR REPLACE FUNCTION get_completed_year_quarters(start_year INT DEFAULT 4)
 RETURNS TABLE (year INT, quarter INT)
-AS
-$$
+AS $func$
 DECLARE
     current_year INT;
     current_quarter INT;
@@ -30,7 +25,7 @@ DECLARE
     y INT;
     q INT;
 BEGIN
-    -- Get the current year and quarter
+    -- Get current year and quarter
     SELECT EXTRACT(YEAR FROM CURRENT_DATE)::INT INTO current_year;
     SELECT EXTRACT(QUARTER FROM CURRENT_DATE)::INT INTO current_quarter;
     
@@ -43,9 +38,9 @@ BEGIN
         last_quarter := current_quarter - 1;
     END IF;
 
-    -- Generate year-quarter pairs
+    -- Generate year-quarter pairs from start_year
     y := start_year;
-    WHILE y < last_year OR (y = last_year AND q <= last_quarter) LOOP
+    WHILE y <= last_year LOOP
         q := 1;
         WHILE q <= 4 LOOP
             IF y = last_year AND q > last_quarter THEN
@@ -59,23 +54,115 @@ BEGIN
         y := y + 1;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$func$ LANGUAGE plpgsql;
 
 /*
-Helper function to load from a config-table (schema_config.json)
- the different types of tables to be copied (DEMO, DRUG, REAC, INDI, RPSR, THER)
+Table to store schema configurations for FAERS tables.
 */
-
 DROP TABLE IF EXISTS faers_schema_config;
 CREATE TABLE faers_schema_config (
     table_name TEXT PRIMARY KEY,
-    schema_json JSONB NOT NULL  -- two-level map: { "YYYYQx": { "col1": "type", ... } }
+    schema_json JSONB NOT NULL
 );
 
--- Function to determine table schema based on year-quarter
-CREATE OR REPLACE FUNCTION get_schema_for_period(table_name TEXT, year INT, quarter INT)
-RETURNS TEXT AS
-$$
+-- Insert schema definitions for 2013Q1, adjusted to match data files
+INSERT INTO faers_schema_config (table_name, schema_json) VALUES
+('DEMO', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "VARCHAR(50)",
+        "caseversion": "int",
+        "i_f_code": "VARCHAR(1)",
+        "event_dt": "VARCHAR(8)",
+        "mfr_dt": "VARCHAR(8)",
+        "init_fda_dt": "VARCHAR(8)",
+        "fda_dt": "VARCHAR(8)",
+        "rept_cod": "VARCHAR(3)",
+        "mfr_num": "VARCHAR(50)",
+        "mfr_sndr": "VARCHAR(100)",
+        "age": "VARCHAR(10)",
+        "age_cod": "VARCHAR(10)",
+        "gndr_cod": "VARCHAR(3)",
+        "e_sub": "VARCHAR(1)",
+        "wt": "VARCHAR(10)",
+        "wt_cod": "VARCHAR(10)",
+        "rept_dt": "VARCHAR(8)",
+        "to_mfr": "VARCHAR(1)",
+        "occp_cod": "VARCHAR(3)",
+        "reporter_country": "VARCHAR(50)",
+        "occr_country": "VARCHAR(50)"
+    }
+}'),
+('DRUG', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "bigint",
+        "drug_seq": "bigint",
+        "role_cod": "VARCHAR(2)",
+        "drugname": "VARCHAR(500)",
+        "val_vbm": "int",
+        "route": "VARCHAR(70)",
+        "dose_vbm": "VARCHAR(300)",
+        "cum_dose_chr": "FLOAT",
+        "cum_dose_unit": "VARCHAR(8)",
+        "dechal": "VARCHAR(2)",
+        "rechal": "VARCHAR(2)",
+        "lot_num": "VARCHAR(565)",
+        "exp_dt": "VARCHAR(200)",
+        "nda_num": "VARCHAR(200)",
+        "dose_amt": "VARCHAR(15)",
+        "dose_unit": "VARCHAR(20)",
+        "dose_form": "VARCHAR(100)",
+        "dose_freq": "VARCHAR(20)"
+    }
+}'),
+('INDI', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "bigint",
+        "indi_drug_seq": "bigint",
+        "indi_pt": "VARCHAR(200)"
+    }
+}'),
+('OUTC', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "bigint",
+        "outc_cod": "VARCHAR(4)"
+    }
+}'),
+('REAC', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "bigint",
+        "pt": "VARCHAR(200)",
+        "drug_rec_act": "VARCHAR(200)"
+    }
+}'),
+('RPSR', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "bigint",
+        "rpsr_cod": "VARCHAR(50)"
+    }
+}'),
+('THER', '{
+    "2013Q1": {
+        "primaryid": "bigint",
+        "caseid": "bigint",
+        "dsg_drug_seq": "bigint",
+        "start_dt": "VARCHAR(8)",
+        "end_dt": "VARCHAR(8)",
+        "dur": "bigint",
+        "dur_cod": "VARCHAR(10)"
+    }
+}');
+
+/*
+Function to retrieve schema for a given table and period.
+*/
+CREATE OR REPLACE FUNCTION get_schema_for_period(p_table_name TEXT, year INT, quarter INT)
+RETURNS TEXT AS $func$
 DECLARE
     schema_rec RECORD;
     target TEXT := LPAD(year::TEXT, 4, '0') || 'Q' || quarter;
@@ -86,10 +173,10 @@ DECLARE
 BEGIN
     SELECT schema_json INTO def
     FROM faers_schema_config
-    WHERE table_name = UPPER(table_name);
+    WHERE table_name = UPPER(p_table_name);
 
     IF def IS NULL THEN
-        RAISE EXCEPTION 'No schema found for table %', table_name;
+        RAISE EXCEPTION 'No schema found for table %', p_table_name;
     END IF;
 
     FOR key IN SELECT jsonb_object_keys(def) LOOP
@@ -99,7 +186,7 @@ BEGIN
     END LOOP;
 
     IF best_key IS NULL THEN
-        RAISE EXCEPTION 'No schema version available for table % and period %', table_name, target;
+        RAISE EXCEPTION 'No schema version available for table % and period %', p_table_name, target;
     END IF;
 
     FOR schema_rec IN SELECT * FROM jsonb_each_text(def -> best_key) LOOP
@@ -108,129 +195,94 @@ BEGIN
 
     RETURN RTRIM(col_spec, ', ');
 END;
-$$ LANGUAGE plpgsql;
+$func$ LANGUAGE plpgsql;
 
-/******************  CREATING RAW DATA TABLES, AND BULK INSERTION ******************************
->>>JUST REPLACE THE FOLDER DIRECTORY, TO THE DATA LOCATION IN YOUR PC, BEFORE STARTING<<<
-
-WHAT THIS CODE DOES: 
-- For all drugs, adversary reactions, indications, demographic and outcomes, create a table and bulk insert the data for each quarter
-  from 2004Q1 to 2023Q1
-- Combine all quarterly entries for each of the above into a single table, such as DRUG_COMBINED, DEMO_COMBINED, etc.
-
-************************************************************************************************/
-
-/********************************* CREATE TABLES FOR RAW FILES ******************************************/
-/********************************* 
-For all core tables from 2004Q1 to 2023Q1 , create a table and copy (bulk insert before postgresql) the data from the FAERS_MAK folder
-******************************************/
+/****************** CREATE AND LOAD RAW DATA TABLES ******************************/
 
 CREATE OR REPLACE FUNCTION load_all_faers_core_tables(root_dir TEXT, start_year INT DEFAULT 4)
-RETURNS void AS
-$$
+RETURNS void AS $func$
 DECLARE
     rec RECORD;
     period_upper TEXT;
     period_lower TEXT;
-    period_full TEXT;
     core_table TEXT;
     table_prefix TEXT;
     file_prefix TEXT;
     schema_def TEXT;
-    sql TEXT;
+    sql_stmt TEXT;
+    file_path TEXT;
 BEGIN
-    -- Core table names to process
     FOR core_table IN SELECT DISTINCT table_name FROM faers_schema_config LOOP
-        table_prefix := lower(core_table.table_name);
-        file_prefix := upper(core_table.table_name);
+        table_prefix := lower(core_table);
+        file_prefix := upper(core_table);
 
         FOR rec IN SELECT * FROM get_completed_year_quarters(start_year) LOOP
             period_upper := LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
             period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
-            period_full := '20' || LPAD(rec.year::TEXT, 2, '0') || 'Q' || rec.quarter::TEXT;
+            file_path := root_dir || 'ascii/' || file_prefix || period_upper || '.txt';
 
-            -- Load appropriate schema definition
-            schema_def := get_schema_for_period(core_table.table_name, rec.year + 2000, rec.quarter); -- convert short year to full
-
-            sql := format($sql$
-                DROP TABLE IF EXISTS %I;
-                CREATE TABLE %I (%s);
-                COPY %I
-                FROM %L
-                WITH (
-                    FORMAT csv,
-                    HEADER true,
-                    DELIMITER '$',
-                    QUOTE E'\b'
-                );
-            $sql$,
-                table_prefix || period_lower,
-                table_prefix || period_lower,
-                schema_def,
-                table_prefix || period_lower,
-                root_dir || '/faers_ascii_' || period_full || '/' || file_prefix || period_upper || '.txt'
-            );
-            EXECUTE sql;
-        END LOOP;
-    END LOOP;
-END;
-$$ LANGUAGE plpgsql;
-
-
-/********************************* COMBINE RAW FILES ******************************************/
-/* For each category (DRUG, REAC, INDI, DEMO, OUTCOME, RPSR) take the quarterly data and add it to the combined data under 'PERIOD' */
-CREATE OR REPLACE FUNCTION combine_all_faers_tables(start_year INT DEFAULT 4)
-RETURNS void AS
-$$
-DECLARE
-    rec RECORD;
-    core_table TEXT;
-    combined_table TEXT;
-    table_prefix TEXT;
-    period_lower TEXT;
-    union_sql TEXT;
-    part_table TEXT;
-    col_list TEXT;
-    schema_def TEXT;
-    first BOOLEAN;
-BEGIN
-    -- Loop over each core table type
-    FOR core_table IN SELECT DISTINCT table_name FROM faers_schema_config LOOP
-        table_prefix := lower(core_table.table_name);
-        combined_table := table_prefix || '_combined';
-        union_sql := '';
-        first := TRUE;
-
-        -- Loop over each completed year-quarter
-        FOR rec IN SELECT * FROM get_completed_year_quarters(start_year) LOOP
-            period_lower := LPAD(rec.year::TEXT, 2, '0') || 'q' || rec.quarter::TEXT;
-            part_table := table_prefix || period_lower;
+            schema_def := get_schema_for_period(core_table, rec.year + 2000, rec.quarter);
 
             BEGIN
-                -- Get the schema for the period to generate SELECT list
-                schema_def := get_schema_for_period(core_table.table_name, rec.year + 2000, rec.quarter);
-                col_list := '';
-                FOR schema_col IN SELECT * FROM regexp_matches(schema_def, '([^,]+)', 'g') LOOP
-                    col_list := col_list || split_part(schema_col[1], ' ', 1) || ', ';
-                END LOOP;
-                col_list := RTRIM(col_list, ', ');
-
-                IF first THEN
-                    EXECUTE format('DROP TABLE IF EXISTS %I; CREATE TABLE %I AS SELECT %s FROM %I;',
-                                   combined_table, combined_table, col_list, part_table);
-                    first := FALSE;
-                ELSE
-                    EXECUTE format('INSERT INTO %I (%s) SELECT %s FROM %I;',
-                                   combined_table, col_list, col_list, part_table);
-                END IF;
-
+                sql_stmt := format($sql$
+                    DROP TABLE IF EXISTS %I;
+                    CREATE TABLE %I (%s);
+                    COPY %I %s
+                    FROM %L
+                    WITH (
+                        FORMAT csv,
+                        HEADER true,
+                        DELIMITER E'\$',
+                        QUOTE '"',
+                        NULL '',
+                        ENCODING 'UTF8'
+                    );
+                $sql$,
+                    table_prefix || period_lower,
+                    table_prefix || period_lower,
+                    schema_def,
+                    table_prefix || period_lower,
+                    CASE
+                        WHEN core_table = 'DEMO' THEN '(
+                            primaryid, caseid, caseversion, i_f_code, event_dt, mfr_dt,
+                            init_fda_dt, fda_dt, rept_cod, mfr_num, mfr_sndr, age,
+                            age_cod, gndr_cod, e_sub, wt, wt_cod, rept_dt, to_mfr,
+                            occp_cod, reporter_country, occr_country
+                        )'
+                        WHEN core_table = 'DRUG' THEN '(
+                            primaryid, caseid, drug_seq, role_cod, drugname, val_vbm, route,
+                            dose_vbm, cum_dose_chr, cum_dose_unit, dechal, rechal, lot_num,
+                            exp_dt, nda_num, dose_amt, dose_unit, dose_form, dose_freq
+                        )'
+                        WHEN core_table = 'INDI' THEN '(
+                            primaryid, caseid, indi_drug_seq, indi_pt
+                        )'
+                        WHEN core_table = 'OUTC' THEN '(
+                            primaryid, caseid, outc_cod
+                        )'
+                        WHEN core_table = 'REAC' THEN '(
+                            primaryid, caseid, pt, drug_rec_act
+                        )'
+                        WHEN core_table = 'RPSR' THEN '(
+                            primaryid, caseid, rpsr_cod
+                        )'
+                        WHEN core_table = 'THER' THEN '(
+                            primaryid, caseid, dsg_drug_seq, start_dt, end_dt, dur, dur_cod
+                        )'
+                        ELSE ''
+                    END,
+                    file_path
+                );
+                EXECUTE sql_stmt;
+                RAISE NOTICE 'Successfully loaded table % from %', table_prefix || period_lower, file_path;
             EXCEPTION WHEN OTHERS THEN
-                -- If table doesn't exist, skip (e.g., file missing for that quarter)
-                RAISE NOTICE 'Skipping %', part_table;
+                RAISE NOTICE 'Failed to load table % from %: %', table_prefix || period_lower, file_path, SQLERRM;
+                CONTINUE;
             END;
         END LOOP;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$func$ LANGUAGE plpgsql;
 
--- TODO: implement trimming and clean-up steps
+-- Execute the loading function
+SELECT load_all_faers_core_tables('C:/Users/xocas/OneDrive/Desktop/faers-scripts/', 13);
