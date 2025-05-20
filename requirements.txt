@@ -1,0 +1,1 @@
+COPY faers-scripts /app/faers-scripts
