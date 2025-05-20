@@ -1,159 +1,191 @@
 ﻿
---STANDARDIZE DEMO_Combined AGE FILED TO YEARS
+ALTER TABLE "DEMO_Combined" ADD COLUMN IF NOT EXISTS "AGE_Years_fixed" FLOAT;
 
-USE FAERS_A
-GO
+WITH AgeConversion AS (
+    SELECT
+        "DEMO_ID",
+        CASE
+            WHEN "AGE_COD" = 'DEC' THEN ROUND(CAST("AGE" AS FLOAT) * 12, 2)
+            WHEN "AGE_COD" IN ('YR', 'YEAR') THEN ROUND("AGE", 2)
+            WHEN "AGE_COD" = 'MON' THEN ROUND(CAST("AGE" AS FLOAT) / 12, 2)
+            WHEN "AGE_COD" IN ('WK', 'WEEK') THEN ROUND(CAST("AGE" AS FLOAT) / 52, 2)
+            WHEN "AGE_COD" IN ('DY', 'DAY') THEN ROUND(CAST("AGE" AS FLOAT) / 365, 2)
+            WHEN "AGE_COD" IN ('HR', 'HOUR') THEN ROUND(CAST("AGE" AS FLOAT) / 8760, 2)
+            ELSE NULL  -- Handle unknown age codes explicitly
+        END AS "AGE_Years_fixed"
+    FROM "DEMO_Combined"
+    WHERE "AGE" ~ '^[0-9\.]+$'  -- Ensure AGE is numeric
+)
+UPDATE "DEMO_Combined"
+SET "AGE_Years_fixed" = ac."AGE_Years_fixed"
+FROM AgeConversion ac
+WHERE "DEMO_Combined"."DEMO_ID" = ac."DEMO_ID";
 
-ALTER TABLE [DEMO_Combined]
-ADD AGE_Years_fixed FLOAT;
-GO
--------------
-WITH CTE AS (SELECT  [DEMO_ID]
+-- Debug: Check AGE_Years_fixed after update
+SELECT COUNT(*) FROM "DEMO_Combined" WHERE "AGE_Years_fixed" IS NOT NULL;
 
-      ,[AGE]
-      ,[AGE_COD]
+-- 2. Standardize DEMO_Combined Country Code
+ALTER TABLE "DEMO_Combined" ADD COLUMN IF NOT EXISTS "COUNTRY_CODE" VARCHAR(2);
 
-	   , CASE WHEN [AGE_COD] ='DEC' THEN round(CAST ([AGE]AS float)*12 ,2)
-			WHEN	  [AGE_COD]='YR' THEN ROUND([AGE] ,2)
-			WHEN  	  [AGE_COD]='YEAR' THEN ROUND([AGE] ,2)
-			WHEN  	  [AGE_COD]='MON' THEN ROUND(CAST ([AGE]AS float)/12 ,2)
-			WHEN   	  [AGE_COD]='WK' THEN ROUND(CAST ([AGE]AS float)/52 ,2)
-			WHEN  	  [AGE_COD]='WEEK' THEN ROUND(CAST ([AGE]AS float)/52 ,2)
-			WHEN  	  [AGE_COD]='DY' THEN ROUND(CAST ([AGE]AS float)/365 ,2)
-			WHEN  	  [AGE_COD]='DAY' THEN ROUND(CAST ([AGE]AS float)/365 ,2)
-			WHEN   	  [AGE_COD]='HR' THEN ROUND(CAST ([AGE]AS float)/8760 ,2)
-			WHEN   	  [AGE_COD]='HOUR' THEN ROUND(CAST ([AGE]AS float)/8760,2) ELSE AGE END AGE_Years_fixed
+UPDATE "DEMO_Combined"
+SET "COUNTRY_CODE" = CASE
+    WHEN LENGTH(reporter_country) = 2 THEN reporter_country
+    ELSE NULL
+END;
 
-  FROM [FAERS_A].[dbo].[DEMO_Combined]
-  WHERE ISNUMERIC([AGE]) = 1)
-  UPDATE [DEMO_Combined]
-  SET [DEMO_Combined].AGE_Years_fixed = cte.AGE_Years_fixed FROM [DEMO_Combined]   INNER JOIN
-  CTE ON [DEMO_Combined].DEMO_ID = CTE.DEMO_ID;
-GO
+-- Debug: Check COUNTRY_CODE after update
+SELECT COUNT(*) FROM "DEMO_Combined" WHERE "COUNTRY_CODE" IS NOT NULL;
 
---STANDARDIZING DEMO_Combined COUNTRY CODE
-ALTER TABLE DEMO_Combined
-ADD  COUNTRY_CODE VARCHAR(2);
-GO
------------------------------------
-UPDATE DEMO_Combined
-  SET COUNTRY_CODE = CASE
---####  FILLMARKER
-ELSE CASE WHEN LEN(reporter_country)=2 THEN reporter_country
-ELSE NULL
+-- 3. Standardize DEMO_Combined Gender
+ALTER TABLE "DEMO_Combined" ADD COLUMN IF NOT EXISTS "Gender" VARCHAR(3);
 
-END END
-GO
---------------------------------------------------
-ALTER TABLE DEMO_Combined
-ADD  Gender VARCHAR(3);
-GO
---------------------------------------------------
-UPDATE DEMO_Combined
-SET Gender = sex;
-GO
----------------------------------------------------
-UPDATE DEMO_Combined
-SET Gender = NULL
-WHERE Gender = 'UNK';
-GO
----------------------------------------------------
+UPDATE "DEMO_Combined"
+SET "Gender" = CASE
+    WHEN sex IN ('M', 'F') THEN sex  -- Keep only 'M' and 'F'
+    ELSE NULL
+END;
 
-UPDATE DEMO_Combined
-SET Gender = NULL
-WHERE Gender = 'NS';
-GO
---------------------------------------------------
-UPDATE DEMO_Combined
-SET Gender = NULL
-WHERE gender = 'YR';
-GO
----------------------------------------------------
+-- Debug: Check Gender after updates
+SELECT COUNT(*) FROM "DEMO_Combined" WHERE "Gender" IS NOT NULL;
 
--------------------------------------
--- PREPARE FOR DEDUPLICATION STEP, COMBINE ALL TOGETHER : DEMO_COMBINED + DRUG_Combined + COMBINED_DRUGS + COMBINED_THER + COMBINED_INDI + COMBINED_REAC
--- GET ONLY THE LATEST CASE REPORT
-DROP TABLE IF EXISTS Aligned_DEMO_DRUG_REAC_INDI_THER;
+-- 4. Prepare for De-duplication: Combine Data
+DROP TABLE IF EXISTS "Aligned_DEMO_DRUG_REAC_INDI_THER";
 
+CREATE TABLE "Aligned_DEMO_DRUG_REAC_INDI_THER" AS
+WITH CombinedData AS (
+    SELECT
+        d."DEMO_ID",
+        d.caseid,
+        d.primaryid,
+        d.caseversion,
+        d.fda_dt,
+        d."I_F_COD",
+        d.event_dt,
+        d."AGE_Years_fixed",
+        d."GENDER",
+        d."COUNTRY_CODE",
+        d.OCCP_COD,
+        d."PERIOD",
+        STRING_AGG(DISTINCT dr.drugname, '/' ORDER BY dr.DRUG_SEQ) AS Aligned_drugs,
+        STRING_AGG(DISTINCT ic.MEDDRA_CODE::TEXT, '/' ORDER BY ic.indi_drug_seq, ic.MEDDRA_CODE) FILTER (WHERE ic.MEDDRA_CODE NOT IN (10070592, 10057097)) AS Aligned_INDI,
+        STRING_AGG(DISTINCT th.START_DT::TEXT, '/' ORDER BY th.dsg_drug_seq, th.START_DT) AS Aligned_START_DATE,
+        STRING_AGG(DISTINCT rc.MEDDRA_CODE::TEXT, '/' ORDER BY rc.MEDDRA_CODE) AS ALIGNED_REAC
+    FROM "DEMO_Combined" d
+    LEFT JOIN "DRUG_Combined" dr ON d.primaryid = dr.primaryid
+    LEFT JOIN "INDI_Combined" ic ON d.primaryid = ic.primaryid
+    LEFT JOIN "THER_Combined" th ON d.primaryid = th.primaryid
+    LEFT JOIN "REAC_Combined" rc ON d.primaryid = rc.primaryid
+    GROUP BY d."DEMO_ID", d.caseid, d.primaryid, d.caseversion, d.fda_dt, d."I_F_COD", d.event_dt, d."AGE_Years_fixed", d."GENDER", d."COUNTRY_CODE", d.OCCP_COD, d."PERIOD"
+)
+SELECT
+    cd.*
+FROM (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY caseid ORDER BY primaryid DESC, "PERIOD" DESC, caseversion DESC, fda_dt DESC, "I_F_COD" DESC, event_dt DESC) AS row_num
+    FROM CombinedData
+) cd
+WHERE cd.row_num = 1;
 
-WITH CTE AS (SELECT  x.DEMO_ID, x.caseid, x.primaryid, x.caseversion, x.fda_dt, x.I_F_COD, x.event_dt, x.AGE_Years_fixed, x.GENDER, x.COUNTRY_CODE,x.OCCP_COD, x.PERIOD, Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC
-				FROM    DEMO_Combined x  LEFT OUTER JOIN
+-- Debug: Check ALIGNED_DEMO_DRUG_REAC_INDI_THER after creation
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
 
-				(SELECT   primaryid	, STRING_AGG(CAST(drugname AS NVARCHAR(MAX)), '/'  ) WITHIN GROUP(ORDER BY DRUG_SEQ ) AS Aligned_drugs
-				FROM DRUG_Combined
-				GROUP BY primaryid) a ON x.primaryid = a.primaryid LEFT OUTER JOIN
+-- 5. De-duplication Steps (Full Match and Partial Matches)
 
-				(SELECT   primaryid	, STRING_AGG(CAST(MEDDRA_CODE AS NVARCHAR(MAX)), '/'  ) WITHIN GROUP(ORDER BY indi_drug_seq,MEDDRA_CODE ) AS Aligned_INDI
-				FROM INDI_Combined WHERE MEDDRA_CODE NOT IN (10070592,10057097)
-				GROUP BY primaryid) b ON a.primaryid=b.primaryid LEFT OUTER JOIN
+-- Full match (all criteria)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE (event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
 
-				(SELECT   primaryid	, STRING_AGG(CAST(START_DT AS NVARCHAR(MAX)), '/'  ) WITHIN GROUP(ORDER BY dsg_drug_seq,START_DT ) AS Aligned_START_DATE
-				FROM THER_Combined
-				GROUP BY primaryid) c ON a.primaryid=c.primaryid LEFT OUTER JOIN
+-- Debug: Check after first de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
 
-				(SELECT primaryid   , STRING_AGG(CAST(MEDDRA_CODE AS NVARCHAR(MAX)), '/' ) WITHIN GROUP(ORDER BY MEDDRA_CODE ) AS ALIGNED_REAC
-				FROM [REAC_Combined]
-				GROUP BY primaryid) d ON a.primaryid=d.primaryid
-				) ;
+-- Partial match (excluding event_dt)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE ("AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
 
-SELECT DEMO_ID, caseid, primaryid, caseversion, fda_dt,  I_F_COD, event_dt, AGE_Years_fixed, GENDER, COUNTRY_CODE, OCCP_COD, Period, Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC
-INTO ALIGNED_DEMO_DRUG_REAC_INDI_THER
-FROM	(SELECT *, ROW_NUMBER() OVER(PARTITION BY caseid ORDER BY primaryid DESC, PERIOD DESC, caseversion DESC, fda_dt DESC,  I_F_COD DESC, event_dt DESC ) AS row_num
-FROM CTE
-		) a WHERE a.row_num = 1;
+-- Debug: Check after second de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
 
--- Full match(ALL CRITERIA MATCHED)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY event_dt, AGE_Years_fixed, GENDER, COUNTRY_CODE,  Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-	) DELETE FROM cte WHERE row_num > 1;
+-- Partial match (excluding AGE_Years_fixed)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY event_dt, "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE (event_dt, "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
 
---(Full match - event_dt)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY  AGE_Years_fixed, GENDER, COUNTRY_CODE,  Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-		) DELETE FROM cte WHERE row_num > 1;
+-- Debug: Check after third de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
 
---(Full match - AGE_Years_fixed)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY event_dt, GENDER, COUNTRY_CODE,  Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-	) DELETE FROM cte WHERE row_num > 1;
+-- Partial match (excluding GENDER)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE (event_dt, "AGE_Years_fixed", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
 
---(Full match -	GENDER)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY event_dt, AGE_Years_fixed, COUNTRY_CODE,  Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-	) DELETE FROM cte WHERE row_num > 1;
+-- Debug: Check after fourth de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
 
---(Full match - COUNTRY_CODE)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY event_dt, AGE_Years_fixed, GENDER,  Aligned_drugs , Aligned_INDI , Aligned_START_DATE , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-	) DELETE FROM cte WHERE row_num > 1;
+-- Partial match (excluding COUNTRY_CODE)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE (event_dt, "AGE_Years_fixed", "GENDER", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
 
---(Full match -	Aligned_INDI)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY event_dt, AGE_Years_fixed, GENDER, COUNTRY_CODE,  Aligned_drugs, Aligned_START_DATE , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-	) DELETE FROM cte WHERE row_num > 1;
+-- Debug: Check after fifth de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
 
---(Full match -	Aligned_START_DATE)
-WITH CTE AS (
-	SELECT *,
-	ROW_NUMBER() OVER(PARTITION BY event_dt, AGE_Years_fixed, GENDER, COUNTRY_CODE,  Aligned_drugs , Aligned_INDI , ALIGNED_REAC ORDER BY primaryid DESC, Period DESC) AS row_num
-	FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-	) DELETE FROM cte WHERE row_num > 1;
----------------------------------------------------------------------------------------------
---DELETE CASES PRESENT IN THE DELETED CASES FILES IN THE FAERS QUARTERLY DATA EXTRACT FILES
--- WE USED MICROSOFT ACCESS DATABASE TO COMBINE THE TABLES TO PRODUCCE COMBINED_DELETED_CASES_REPORTS, KEEP Field1 NAME AS THE FIELD NAME OF THE CASEID
+-- Partial match (excluding Aligned_INDI)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE (event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
 
-DELETE FROM Aligned_DEMO_DRUG_REAC_INDI_THER
-WHERE CASEID IN (SELECT Field1 FROM COMBINED_DELETED_CASES_REPORTS)
----------------------------------------------------------------------------------------------
+-- Debug: Check after sixth de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+
+-- Partial match (excluding Aligned_START_DATE)
+WITH RankedRows AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
+    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+)
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE (event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+
+-- Debug: Check after seventh de-duplication
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+
+-- 6. Delete Cases from Deleted Reports
+DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
+WHERE CASEID IN (SELECT Field1 FROM "COMBINED_DELETED_CASES_REPORTS");
+
+-- Debug: Check after deleting cases
+SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";

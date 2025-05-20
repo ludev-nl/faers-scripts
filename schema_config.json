@@ -1,0 +1,313 @@
+{
+    "DRUG": [
+      {
+        "date_range": ["2004Q1", "2012Q3"],
+        "columns": {
+          "isr": "bigint",
+          "drug_seq": "bigint",
+          "role_cod": "varchar(2)",
+          "drugname": "varchar(500)",
+          "val_vbm": "int",
+          "route": "varchar(70)",
+          "dose_vbm": "varchar(300)",
+          "dechal": "varchar(2)",
+          "rechal": "varchar(2)",
+          "lot_num": "varchar(565)",
+          "exp_dt": "varchar(200)",
+          "nda_num": "varchar(200)"
+        }
+      },
+      {
+        "date_range": ["2012Q4", "2014Q2"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "drug_seq": "bigint",
+          "role_cod": "varchar(2)",
+          "drugname": "varchar(500)",
+          "val_vbm": "int",
+          "route": "varchar(70)",
+          "dose_vbm": "varchar(300)",
+          "cum_dose_chr": "float(24)",
+          "cum_dose_unit": "varchar(8)",
+          "dechal": "varchar(2)",
+          "rechal": "varchar(2)",
+          "lot_num": "varchar(565)",
+          "exp_dt": "varchar(200)",
+          "nda_num": "varchar(200)",
+          "dose_amt": "varchar(15)",
+          "dose_unit": "varchar(20)",
+          "dose_form": "varchar(100)",
+          "dose_freq": "varchar(20)"
+        }
+      },
+      {
+        "date_range": ["2014Q3", "2021Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "drug_seq": "bigint",
+          "role_cod": "varchar(2)",
+          "drugname": "varchar(500)",
+          "prod_ai": "varchar(800)",
+          "val_vbm": "int",
+          "route": "varchar(70)",
+          "dose_vbm": "varchar(300)",
+          "cum_dose_chr": "float(24)",
+          "cum_dose_unit": "varchar(8)",
+          "dechal": "varchar(2)",
+          "rechal": "varchar(2)",
+          "lot_num": "varchar(565)",
+          "exp_dt": "varchar(200)",
+          "nda_num": "varchar(200)",
+          "dose_amt": "varchar(15)",
+          "dose_unit": "varchar(20)",
+          "dose_form": "varchar(100)",
+          "dose_freq": "varchar(20)"
+        }
+      },
+      {
+        "date_range": ["2022Q1", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "drug_seq": "bigint",
+          "role_cod": "varchar(2)",
+          "drugname": "varchar(500)",
+          "prod_ai": "varchar(800)",
+          "val_vbm": "int",
+          "route": "varchar(70)",
+          "dose_vbm": "varchar(800)",
+          "cum_dose_chr": "float(24)",
+          "cum_dose_unit": "varchar(8)",
+          "dechal": "varchar(2)",
+          "rechal": "varchar(2)",
+          "lot_num": "varchar(565)",
+          "exp_dt": "varchar(200)",
+          "nda_num": "varchar(200)",
+          "dose_amt": "varchar(15)",
+          "dose_unit": "varchar(20)",
+          "dose_form": "varchar(100)",
+          "dose_freq": "varchar(20)"
+        }
+      }
+    ],
+    "REAC": [
+      {
+        "date_range": ["2004Q1", "2012Q3"],
+        "columns": {
+          "isr": "bigint",
+          "pt": "varchar(100)"
+        }
+      },
+      {
+        "date_range": ["2012Q4", "2014Q2"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "pt": "varchar(100)"
+        }
+      },
+      {
+        "date_range": ["2014Q3", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "pt": "varchar(100)",
+          "drug_rec_act": "varchar(100)"
+        }
+      }
+    ],
+    "DEMO": [
+      {
+        "date_range": ["2004Q1", "2005Q2"],
+        "columns": {
+          "isr": "bigint",
+          "case": "bigint",
+          "i_f_cod": "varchar(1)",
+          "foll_seq": "varchar(50)",
+          "image": "varchar(10)",
+          "event_dt": "varchar(20)",
+          "mfr_dt": "varchar(20)",
+          "fda_dt": "varchar(20)",
+          "rept_cod": "varchar(10)",
+          "mfr_num": "varchar(100)",
+          "mfr_sndr": "varchar(100)",
+          "age": "varchar(28)",
+          "age_cod": "varchar(3)",
+          "gndr_cod": "varchar(3)",
+          "e_sub": "varchar(1)",
+          "wt": "varchar(25)",
+          "wt_cod": "varchar(20)",
+          "rept_dt": "varchar(20)",
+          "occp_cod": "varchar(10)",
+          "death_dt": "varchar(1)",
+          "to_mfr": "varchar(1)",
+          "confid": "varchar(10)"
+        }
+      },
+      {
+        "date_range": ["2005Q3", "2012Q3"],
+        "columns": {
+          "isr": "bigint",
+          "case": "bigint",
+          "i_f_cod": "varchar(1)",
+          "foll_seq": "varchar(50)",
+          "image": "varchar(10)",
+          "event_dt": "varchar(20)",
+          "mfr_dt": "varchar(20)",
+          "fda_dt": "varchar(20)",
+          "rept_cod": "varchar(10)",
+          "mfr_num": "varchar(100)",
+          "mfr_sndr": "varchar(100)",
+          "age": "varchar(28)",
+          "age_cod": "varchar(3)",
+          "gndr_cod": "varchar(3)",
+          "e_sub": "varchar(1)",
+          "wt": "varchar(25)",
+          "wt_cod": "varchar(20)",
+          "rept_dt": "varchar(20)",
+          "occp_cod": "varchar(10)",
+          "death_dt": "varchar(1)",
+          "to_mfr": "varchar(1)",
+          "confid": "varchar(10)",
+          "reporter_country": "varchar(100)"
+        }
+      },
+      {
+        "date_range": ["2012Q4", "2014Q2"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "caseversion": "int",
+          "i_f_cod": "varchar(1)",
+          "event_dt": "varchar(20)",
+          "mfr_dt": "varchar(20)",
+          "init_fda_dt": "varchar(20)",
+          "fda_dt": "varchar(20)",
+          "rept_cod": "varchar(10)",
+          "mfr_num": "varchar(100)",
+          "mfr_sndr": "varchar(100)",
+          "age": "varchar(28)",
+          "age_cod": "varchar(3)",
+          "gndr_cod": "varchar(3)",
+          "e_sub": "varchar(1)",
+          "wt": "varchar(25)",
+          "wt_cod": "varchar(20)",
+          "rept_dt": "varchar(20)",
+          "occp_cod": "varchar(10)",
+          "to_mfr": "varchar(10)",
+          "reporter_country": "varchar(100)",
+          "occr_country": "varchar(20)"
+        }
+      },
+      {
+        "date_range": ["2014Q3", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "caseversion": "int",
+          "i_f_cod": "varchar(1)",
+          "event_dt": "varchar(20)",
+          "mfr_dt": "varchar(20)",
+          "init_fda_dt": "varchar(20)",
+          "fda_dt": "varchar(20)",
+          "rept_cod": "varchar(10)",
+          "auth_num": "varchar(100)",
+          "mfr_num": "varchar(100)",
+          "mfr_sndr": "varchar(100)",
+          "lit_ref": "varchar(600)",
+          "age": "varchar(28)",
+          "age_cod": "varchar(3)",
+          "age_grp": "varchar(1)",
+          "sex": "varchar(3)",
+          "e_sub": "varchar(1)",
+          "wt": "varchar(25)",
+          "wt_cod": "varchar(20)",
+          "rept_dt": "varchar(20)",
+          "occp_cod": "varchar(10)",
+          "to_mfr": "varchar(10)",
+          "reporter_country": "varchar(100)",
+          "occr_country": "varchar(20)"
+        }
+      }
+    ],
+    "THER": [
+      {
+        "date_range": ["2004Q1", "2012Q3"],
+        "columns": {
+          "isr": "bigint",
+          "drug_seq": "bigint",
+          "start_dt": "bigint",
+          "end_dt": "bigint",
+          "dur": "varchar(50)",
+          "dur_cod": "varchar(50)"
+        }
+      },
+      {
+        "date_range": ["2012Q4", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "dsg_drug_seq": "bigint",
+          "start_dt": "bigint",
+          "end_dt": "bigint",
+          "dur": "varchar(50)",
+          "dur_cod": "varchar(50)"
+        }
+      }
+    ],
+    "RPSR": [
+      {
+        "date_range": ["2004Q1", "9999Q4"],
+        "columns": {
+          "isr": "bigint",
+          "rpsr_cod": "varchar(100)"
+        }
+      },
+      {
+        "date_range": ["2012Q3", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "rpsr_cod": "varchar(100)"
+        }
+      }
+    ],
+    "OUTC": [
+      {
+        "date_range": ["2004Q1", "2012Q3"],
+        "columns": {
+          "isr": "bigint",
+          "outc_cod": "varchar(20)"
+        }
+      },
+      {
+        "date_range": ["2012Q4", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "outc_cod": "varchar(20)"
+        }
+      }
+    ],
+    "INDI": [
+      {
+        "date_range": ["2004Q1", "2012Q3"],
+        "columns": {
+          "isr": "bigint",
+          "drug_seq": "bigint",
+          "indi_pt": "varchar(200)"
+        }
+      },
+      {
+        "date_range": ["2012Q4", "9999Q4"],
+        "columns": {
+          "primaryid": "bigint",
+          "caseid": "bigint",
+          "indi_drug_seq": "bigint",
+          "indi_pt": "varchar(200)"
+        }
+      }
+    ]
+  }
+  
