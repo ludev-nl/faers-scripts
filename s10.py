@@ -1,3 +1,4 @@
+import os
 import psycopg
 import json
 import logging
@@ -5,13 +6,13 @@ import logging
 # Configure logging for better error tracking
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def run_remapping_sql_psycopg(config_file="/home/xocas04/faers-scripts/config.json"):
+def run_remapping_sql_psycopg(config_file="/home/epprechtkai/faers-scripts/config.json"):
     """
     Runs the SQL script s10.sql against a PostgreSQL database using psycopg,
     reading connection parameters from a JSON configuration file.
 
     Args:
-        config_file: Path to the JSON configuration file (default: "/home/xocas04/faers-scripts/config.json").
+        config_file: Path to the JSON configuration file (default: "/home/epprechtkai/faers-scripts/config.json").
 
     Returns:
         None. Executes the SQL script and logs progress or errors.
@@ -30,9 +31,11 @@ def run_remapping_sql_psycopg(config_file="/home/xocas04/faers-scripts/config.js
             conn.autocommit = True  # Enable autocommit for DDL and stored procedure execution
             with conn.cursor() as cur:
                 logging.info("Connected to the database.")
-                with open("s10.sql", "r") as f:
+                sql_file = "s10.sql"
+                logging.info(f"Attempting to read SQL script from {sql_file}")
+                with open(sql_file, "r") as f:
                     sql_script = f.read()
-                logging.info("Read SQL script from s10.sql")
+                logging.info(f"Read SQL script from {sql_file}")
 
                 # Split the script into individual statements, handling semicolons and filtering empty statements
                 statements = [s.strip() for s in sql_script.split(";") if s.strip()]
@@ -57,11 +60,14 @@ def run_remapping_sql_psycopg(config_file="/home/xocas04/faers-scripts/config.js
                         logging.error(f"Error executing statement {i+1}: {e}")
                         raise  # Re-raise to stop execution and log the error
 
-                logging.info("SQL script s10.sql executed successfully.")
+                logging.info(f"SQL script {sql_file} executed successfully.")
 
     except (psycopg.Error, FileNotFoundError, KeyError, json.JSONDecodeError) as e:
         if isinstance(e, FileNotFoundError):
-            logging.error(f"Error: Configuration file '{config_file}' not found.")
+            if 'sql' in str(e).lower():
+                logging.error(f"Error: SQL file '{sql_file}' not found.")
+            else:
+                logging.error(f"Error: Configuration file '{config_file}' not found.")
         elif isinstance(e, json.JSONDecodeError):
             logging.error(f"Error: Invalid JSON format in '{config_file}'.")
         elif isinstance(e, KeyError):
