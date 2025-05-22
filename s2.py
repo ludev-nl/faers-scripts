@@ -10,9 +10,7 @@ import tempfile
 import time  # Import the time module for retry delays
 
 # --- Configuration Loading ---
-#config_file = "config.json"
 config_file = "/home/xocas04/faers-scripts/config.json"
-
 schema_file = "schema_config.json"
 
 try:
@@ -140,24 +138,14 @@ def import_data_file(conn: psycopg.Connection, file_path: str, table_name: str, 
 
             if result.returncode == 0:
                 logging.info(f"Successfully imported {file_path} into {table_name}")
-                # --- Log stderr even on "success" ---
                 if result.stderr:
                     logging.warning(f"psql stderr (even though returncode is 0): {result.stderr}")
-
-                # --- Row Count Verification ---
-                expected_row_count = get_expected_row_count(file_path)  # Function to get expected count
-                actual_row_count = get_actual_row_count(conn, table_name)  # Function to query DB
-
-                if actual_row_count == expected_row_count:
-                    logging.info(f"Verified: {table_name} has {actual_row_count} rows (as expected).")
-                    return  # Success, exit the function
-                else:
-                    logging.error(f"Row count mismatch for {table_name}: Expected {expected_row_count}, but found {actual_row_count}. Attempt {attempt + 1}/{max_retries}")
-                    if attempt < max_retries - 1:
-                        logging.info(f"Retrying import for {table_name} after a short delay...")
-                        time.sleep(5)  # Wait for 5 seconds before retrying
+                return  # Success, exit the function
             else:
                 logging.error(f"Error importing {file_path} into {table_name}: {result.stderr}")
+                if attempt < max_retries - 1:
+                    logging.info(f"Retrying import for {table_name} after a short delay...")
+                    time.sleep(5)  # Wait for 5 seconds before retrying
         except Exception as e:
             logging.error(f"Error importing data (attempt {attempt + 1}/{max_retries}): {e}")
             logging.error(traceback.format_exc())
@@ -185,11 +173,6 @@ def validate_data_file(file_path, schema):
                 if len(row) != expected_columns:
                     logging.warning(f"Row {line_num} in {file_path} has {len(row)} columns, expected {expected_columns}. Skipping row.")
                     continue  # Skip the row, but continue validating other rows
-
-                # (Optional) Add more specific data type/format checks here
-                # For example, check if date columns have a valid date format
-                # or if numeric columns contain only numbers.
-
             return True  # Validation passed
     except Exception as e:
         logging.error(f"Error during data validation for {file_path}: {e}")
@@ -247,7 +230,7 @@ def main():
             files_to_process = list_files_in_gcs_directory(bucket_name, gcs_directory)
 
             if not files_to_process:
-                logging.info(f"No .txt files found in gs://{bucket_name}/{gcs_directory}.  Exiting.")
+                logging.info(f"No .txt files found in gs://{bucket_name}/{gcs_directory}. Exiting.")
                 return
 
             for gcs_file_path in files_to_process:
@@ -276,3 +259,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
