@@ -31,7 +31,7 @@ def run_remapping_sql_psycopg(config_file="/home/epprechtkai/faers-scripts/confi
             conn.autocommit = True  # Enable autocommit for DDL and stored procedure execution
             with conn.cursor() as cur:
                 logging.info("Connected to the database.")
-                sql_file = "s10.sql"
+                sql_file = "/home/epprechtkai/faers-scripts/s10.sql"
                 logging.info(f"Attempting to read SQL script from {sql_file}")
                 with open(sql_file, "r") as f:
                     sql_script = f.read()
