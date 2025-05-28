@@ -1,71 +1,71 @@
-﻿--STANDARDIZE DEMO_Combined AGE FILED TO YEARS
+﻿-- Set schema search path
+SET search_path TO faers_combined, public;
 
-ALTER TABLE DEMO_Combined
+-- STANDARDIZE DEMO_Combined AGE FIELD TO YEARS
+ALTER TABLE faers_combined."DEMO_Combined"
 ADD COLUMN IF NOT EXISTS age_years_fixed FLOAT;
 
-
 WITH cte AS (
-  SELECT
-    demo_id,
-    age,
-    age_cod,
-    CASE
-      WHEN age_cod = 'DEC' THEN ROUND(CAST(age AS FLOAT) * 12, 2)
-      WHEN age_cod = 'YR' THEN ROUND(age, 2)
-      WHEN age_cod = 'YEAR' THEN ROUND(age, 2)
-      WHEN age_cod = 'MON' THEN ROUND(CAST(age AS FLOAT) / 12, 2)
-      WHEN age_cod = 'WK' THEN ROUND(CAST(age AS FLOAT) / 52, 2)
-      WHEN age_cod = 'WEEK' THEN ROUND(CAST(age AS FLOAT) / 52, 2)
-      WHEN age_cod = 'DY' THEN ROUND(CAST(age AS FLOAT) / 365, 2)
-      WHEN age_cod = 'DAY' THEN ROUND(CAST(age AS FLOAT) / 365, 2)
-      WHEN age_cod = 'HR' THEN ROUND(CAST(age AS FLOAT) / 8760, 2)
-      WHEN age_cod = 'HOUR' THEN ROUND(CAST(age AS FLOAT) / 8760, 2)
-      ELSE age
-    END AS age_years_fixed
-  FROM demo_combined
-  WHERE age ~ '^[0-9]+(\.[0-9]+)?$' -- ISNUMERIC check
+    SELECT
+        "DEMO_ID",
+        age,
+        age_cod,
+        CASE
+            WHEN age_cod = 'DEC' THEN ROUND(CAST(age AS NUMERIC) * 12, 2)
+            WHEN age_cod IN ('YR', 'YEAR') THEN ROUND(CAST(age AS NUMERIC), 2)
+            WHEN age_cod = 'MON' THEN ROUND(CAST(age AS NUMERIC) / 12, 2)
+            WHEN age_cod IN ('WK', 'WEEK') THEN ROUND(CAST(age AS NUMERIC) / 52, 2)
+            WHEN age_cod IN ('DY', 'DAY') THEN ROUND(CAST(age AS NUMERIC) / 365, 2)
+            WHEN age_cod IN ('HR', 'HOUR') THEN ROUND(CAST(age AS NUMERIC) / 8760, 2)
+            ELSE NULL
+        END AS age_years_fixed
+    FROM faers_combined."DEMO_Combined"
+    WHERE age ~ '^[0-9]+(\.[0-9]+)?$' -- ISNUMERIC check
 )
-UPDATE demo_combined
+UPDATE faers_combined."DEMO_Combined"
 SET age_years_fixed = cte.age_years_fixed
 FROM cte
-WHERE demo_combined.demo_id = cte.demo_id;
+WHERE faers_combined."DEMO_Combined"."DEMO_ID" = cte."DEMO_ID";
 
 -- Add COUNTRY_CODE column
-ALTER TABLE DEMO_Combined
+ALTER TABLE faers_combined."DEMO_Combined"
 ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);
 
--- Update COUNTRY_CODE using JSON-based country mappings
--- Load country mappings from JSON file (e.g., demo_country_mappings.json)
-DROP TABLE IF EXISTS country_mappings;
-CREATE TABLE IF NOT EXISTS country_mappings (
-    country_name TEXT PRIMARY KEY,
-    country_code TEXT
+-- Update COUNTRY_CODE using CSV-based country mappings
+DROP TABLE IF EXISTS faers_combined.country_mappings;
+CREATE TABLE faers_combined.country_mappings (
+    country_name VARCHAR(255) PRIMARY KEY,
+    country_code VARCHAR(2)
 );
 
-\copy country_mappings(country_name, country_code) FROM '../faers-data/reporter_countries.csv' CSV HEADER;
---COPY country_mappings(country_name, country_code) FROM 'reporter_countries.json' WITH (FORMAT JSON);
+\copy faers_combined.country_mappings(country_name, country_code) FROM '/Users/kaiepprecht/Desktop/untitled folder/faers-scripts/data/reporter_countries.csv' WITH (FORMAT CSV, DELIMITER ',', HEADER true, NULL '');
+
+-- Clean up country_code to ensure valid values
+UPDATE faers_combined.country_mappings
+SET country_code = NULL
+WHERE country_code = '';
 
 -- Update DEMO_Combined country_code field
-UPDATE demo_combined
+UPDATE faers_combined."DEMO_Combined"
 SET country_code = (
-  SELECT m.country_code
-  FROM country_mappings m
-  WHERE demo_combined.reporter_country = m.country_name
+    SELECT m.country_code
+    FROM faers_combined.country_mappings m
+    WHERE faers_combined."DEMO_Combined".reporter_country = m.country_name
 )
 WHERE country_code IS NULL;
 
 -- If reporter_country is already a 2-character code, retain it
-UPDATE demo_combined
+UPDATE faers_combined."DEMO_Combined"
 SET country_code = reporter_country
 WHERE LENGTH(reporter_country) = 2 AND country_code IS NULL;
 
 -- Add and standardize Gender column
-ALTER TABLE DEMO_Combined
+ALTER TABLE faers_combined."DEMO_Combined"
 ADD COLUMN IF NOT EXISTS gender VARCHAR(3);
 
-UPDATE demo_combined
-SET gender = sex;
+UPDATE faers_combined."DEMO_Combined"
+SET gender = gndr_cod;
 
-UPDATE demo_combined
+UPDATE faers_combined."DEMO_Combined"
 SET gender = NULL
 WHERE gender IN ('UNK', 'NS', 'YR');
