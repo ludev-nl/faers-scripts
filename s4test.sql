@@ -1,8 +1,5 @@
 ﻿--STANDARDIZE DEMO_Combined AGE FILED TO YEARS
 
-\c FAERS_A;
-
-
 ALTER TABLE DEMO_Combined
 ADD COLUMN IF NOT EXISTS age_years_fixed FLOAT;
 
