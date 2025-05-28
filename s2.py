@@ -13,15 +13,15 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("/home/xocas04/faers-scripts/s2_execution.log"),
+        logging.FileHandler("s2_execution.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-CONFIG_FILE = "/home/xocas04/faers-scripts/config.json"
-SCHEMA_FILE = "/home/xocas04/faers-scripts/schema_config.json"
+CONFIG_FILE = "config.json"
+SCHEMA_FILE = "schema_config.json"
 
 def check_psycopg_version():
     """Check psycopg version."""
