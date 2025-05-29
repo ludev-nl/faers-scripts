@@ -38,7 +38,7 @@ CREATE TABLE faers_combined.country_mappings (
     country_code VARCHAR(2)
 );
 
-\copy faers_combined.country_mappings(country_name, country_code) FROM '/Users/kaiepprecht/Desktop/untitled folder/faers-scripts/data/reporter_countries.csv' WITH (FORMAT CSV, DELIMITER ',', HEADER true, NULL '');
+\copy faers_combined.country_mappings(country_name, country_code) FROM 'faers_data/reporter_countries.csv' WITH (FORMAT CSV, DELIMITER ',', HEADER true, NULL '');
 
 -- Clean up country_code to ensure valid values
 UPDATE faers_combined.country_mappings
