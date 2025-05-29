@@ -1,6 +1,31 @@
+-- Verify database context
+DO $$
+BEGIN
+    IF current_database() != 'faersdatabase' THEN
+        RAISE EXCEPTION 'Must be connected to faersdatabase, current database is %', current_database();
+    END IF;
+END $$;
+
+-- Set schema with explicit authorization
+CREATE SCHEMA IF NOT EXISTS faers_b AUTHORIZATION postgres;
+
+-- Verify schema exists
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_namespace WHERE nspname = 'faers_b') THEN
+        RAISE EXCEPTION 'Schema faers_b failed to create';
+    END IF;
+END $$;
+
+-- Grant privileges to ensure access
+GRANT ALL ON SCHEMA faers_b TO postgres;
+
+-- Set search path
+SET search_path TO faers_b, faers_combined, public;
+
 -- Create DRUG_Mapper table
-DROP TABLE IF EXISTS "DRUG_Mapper";
-CREATE TABLE "DRUG_Mapper" (
+DROP TABLE IF EXISTS faers_b."DRUG_Mapper";
+CREATE TABLE faers_b."DRUG_Mapper" (
     "DRUG_ID" INTEGER PRIMARY KEY,
     "primaryid" BIGINT,
     "caseid" BIGINT,
@@ -17,26 +42,36 @@ CREATE TABLE "DRUG_Mapper" (
     "SAB" VARCHAR(20),
     "TTY" VARCHAR(20),
     "CODE" VARCHAR(50),
-    "remapping_NOTES" VARCHAR(100),
+    "remapping_NOTES" TEXT,
     "remapping_RXAUI" VARCHAR(8),
     "remapping_RXCUI" VARCHAR(8),
     "remapping_STR" TEXT,
     "remapping_SAB" VARCHAR(20),
     "remapping_TTY" VARCHAR(20),
-    "remapping_CODE" VARCHAR(50)
+    "remapping_CODE" VARCHAR(50),
+    "id" SERIAL UNIQUE
 );
 
--- Insert data into DRUG_Mapper (requires faers_a schema access)
-INSERT INTO "DRUG_Mapper" (
+-- Verify faers_combined.DRUG_Combined exists
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_class WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') AND relname = 'DRUG_Combined') THEN
+        RAISE NOTICE 'Table faers_combined.DRUG_Combined does not exist, skipping INSERT';
+    END IF;
+END $$;
+
+-- Insert data from faers_combined.DRUG_Combined
+INSERT INTO faers_b."DRUG_Mapper" (
     "DRUG_ID", "primaryid", "caseid", "DRUG_SEQ", "ROLE_COD", "DRUGNAME", "prod_ai", "NDA_NUM", "PERIOD"
 )
-SELECT "DRUG_ID", "primaryid", "caseid", "DRUG_SEQ", "ROLE_COD", "DRUGNAME", "prod_ai", "NDA_NUM", "PERIOD"
-FROM faers_a."DRUG_Combined"
-WHERE "primaryid" IN (SELECT "primaryid" FROM faers_a."ALIGNED_DEMO_DRUG_REAC_INDI_THER");
+SELECT "DRUG_ID", "primaryid", "caseid", "drug_seq", "role_cod", "drugname", "prod_ai", "nda_num", "PERIOD"
+FROM faers_combined."DRUG_Combined"
+WHERE "primaryid" IN (SELECT "primaryid" FROM faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER")
+ON CONFLICT ON CONSTRAINT "DRUG_Mapper_pkey" DO NOTHING;
 
--- Create RXNATOMARCHIVE table
-DROP TABLE IF EXISTS "RXNATOMARCHIVE";
-CREATE TABLE "RXNATOMARCHIVE" (
+-- Create RxNorm tables
+DROP TABLE IF EXISTS faers_b."RXNATOMARCHIVE";
+CREATE TABLE faers_b."RXNATOMARCHIVE" (
     "RXAUI" VARCHAR(8) NOT NULL,
     "AUI" VARCHAR(10),
     "STR" TEXT NOT NULL,
@@ -55,9 +90,8 @@ CREATE TABLE "RXNATOMARCHIVE" (
     "MERGED_TO_RXCUI" VARCHAR(8)
 );
 
--- Create RXNCONSO table
-DROP TABLE IF EXISTS "RXNCONSO";
-CREATE TABLE "RXNCONSO" (
+DROP TABLE IF EXISTS faers_b."RXNCONSO";
+CREATE TABLE faers_b."RXNCONSO" (
     "RXCUI" VARCHAR(8) NOT NULL,
     "LAT" VARCHAR(3) NOT NULL DEFAULT 'ENG',
     "TS" VARCHAR(1),
@@ -78,9 +112,8 @@ CREATE TABLE "RXNCONSO" (
     "CVF" VARCHAR(50)
 );
 
--- Create RXNREL table
-DROP TABLE IF EXISTS "RXNREL";
-CREATE TABLE "RXNREL" (
+DROP TABLE IF EXISTS faers_b."RXNREL";
+CREATE TABLE faers_b."RXNREL" (
     "RXCUI1" VARCHAR(8),
     "RXAUI1" VARCHAR(8),
     "STYPE1" VARCHAR(50),
@@ -99,9 +132,8 @@ CREATE TABLE "RXNREL" (
     "CVF" VARCHAR(50)
 );
 
--- Create RXNSAB table
-DROP TABLE IF EXISTS "RXNSAB";
-CREATE TABLE "RXNSAB" (
+DROP TABLE IF EXISTS faers_b."RXNSAB";
+CREATE TABLE faers_b."RXNSAB" (
     "VCUI" VARCHAR(8),
     "RCUI" VARCHAR(8),
     "VSAB" VARCHAR(40),
@@ -129,9 +161,8 @@ CREATE TABLE "RXNSAB" (
     "SCIT" VARCHAR(4000)
 );
 
--- Create RXNSAT table
-DROP TABLE IF EXISTS "RXNSAT";
-CREATE TABLE "RXNSAT" (
+DROP TABLE IF EXISTS faers_b."RXNSAT";
+CREATE TABLE faers_b."RXNSAT" (
     "RXCUI" VARCHAR(8),
     "LUI" VARCHAR(8),
     "SUI" VARCHAR(8),
@@ -147,9 +178,8 @@ CREATE TABLE "RXNSAT" (
     "CVF" VARCHAR(50)
 );
 
--- Create RXNSTY table
-DROP TABLE IF EXISTS "RXNSTY";
-CREATE TABLE "RXNSTY" (
+DROP TABLE IF EXISTS faers_b."RXNSTY";
+CREATE TABLE faers_b."RXNSTY" (
     "RXCUI" VARCHAR(8) NOT NULL,
     "TUI" VARCHAR(4),
     "STN" VARCHAR(100),
@@ -158,18 +188,16 @@ CREATE TABLE "RXNSTY" (
     "CVF" VARCHAR(50)
 );
 
--- Create RXNDOC table
-DROP TABLE IF EXISTS "RXNDOC";
-CREATE TABLE "RXNDOC" (
+DROP TABLE IF EXISTS faers_b."RXNDOC";
+CREATE TABLE faers_b."RXNDOC" (
     "DOCKEY" VARCHAR(50) NOT NULL,
     "VALUE" VARCHAR(1000),
     "TYPE" VARCHAR(50) NOT NULL,
     "EXPL" VARCHAR(1000)
 );
 
--- Create RXNCUICHANGES table
-DROP TABLE IF EXISTS "RXNCUICHANGES";
-CREATE TABLE "RXNCUICHANGES" (
+DROP TABLE IF EXISTS faers_b."RXNCUICHANGES";
+CREATE TABLE faers_b."RXNCUICHANGES" (
     "RXAUI" VARCHAR(8),
     "CODE" VARCHAR(50),
     "SAB" VARCHAR(20),
@@ -179,9 +207,8 @@ CREATE TABLE "RXNCUICHANGES" (
     "NEW_RXCUI" VARCHAR(8) NOT NULL
 );
 
--- Create RXNCUI table
-DROP TABLE IF EXISTS "RXNCUI";
-CREATE TABLE "RXNCUI" (
+DROP TABLE IF EXISTS faers_b."RXNCUI";
+CREATE TABLE faers_b."RXNCUI" (
     "cui1" VARCHAR(8),
     "ver_start" VARCHAR(40),
     "ver_end" VARCHAR(40),
@@ -189,29 +216,29 @@ CREATE TABLE "RXNCUI" (
     "cui2" VARCHAR(8)
 );
 
--- Load data using COPY (requires pg_read_server_files privilege)
-COPY "RXNATOMARCHIVE" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNATOMARCHIVE.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNCONSO" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCONSO.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNREL" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNREL.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNSAB" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAB.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNSAT" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAT.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNSTY" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSTY.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNDOC" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNDOC.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNCUICHANGES" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUICHANGES.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
-COPY "RXNCUI" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUI.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+-- Load data using \copy
+\copy faers_b."RXNATOMARCHIVE" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNATOMARCHIVE.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNCONSO" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCONSO.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNREL" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNREL.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNSAB" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAB.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNSAT" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAT.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNSTY" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSTY.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNDOC" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNDOC.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNCUICHANGES" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUICHANGES.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+\copy faers_b."RXNCUI" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUI.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
 
--- Create indexes after data loading
-CREATE INDEX "DRUGNAME_INDEX" ON "DRUG_Mapper" ("DRUGNAME");
-CREATE INDEX "RXNCONSO_RXCUI" ON "RXNCONSO" ("RXCUI");
-CREATE INDEX "RXNCONSO_RXAUI" ON "RXNCONSO" ("RXAUI");
-CREATE INDEX "RXNCONSO_SAB" ON "RXNCONSO" ("SAB");
-CREATE INDEX "RXNCONSO_TTY" ON "RXNCONSO" ("TTY");
-CREATE INDEX "RXNCONSO_CODE" ON "RXNCONSO" ("CODE");
-CREATE INDEX "RXNSAT_RXCUI" ON "RXNSAT" ("RXCUI");
-CREATE INDEX "RXNSAT_RXAUI" ON "RXNSAT" ("RXCUI", "RXAUI");
-CREATE INDEX "RXNREL_RXCUI1" ON "RXNREL" ("RXCUI1");
-CREATE INDEX "RXNREL_RXCUI2" ON "RXNREL" ("RXCUI2");
-CREATE INDEX "RXNREL_RXAUI1" ON "RXNREL" ("RXAUI1");
-CREATE INDEX "RXNREL_RXAUI2" ON "RXNREL" ("RXAUI2");
-CREATE INDEX "RXNREL_RELA" ON "RXNREL" ("RELA");
-CREATE INDEX "RXNREL_REL" ON "RXNREL" ("REL");
+-- Create indexes
+CREATE INDEX IF NOT EXISTS "DRUGNAME_INDEX" ON faers_b."DRUG_Mapper" ("DRUGNAME");
+CREATE INDEX IF NOT EXISTS "RXNCONSO_RXCUI" ON faers_b."RXNCONSO" ("RXCUI");
+CREATE INDEX IF NOT EXISTS "RXNCONSO_RXAUI" ON faers_b."RXNCONSO" ("RXAUI");
+CREATE INDEX IF NOT EXISTS "RXNCONSO_SAB" ON faers_b."RXNCONSO" ("SAB");
+CREATE INDEX IF NOT EXISTS "RXNCONSO_TTY" ON faers_b."RXNCONSO" ("TTY");
+CREATE INDEX IF NOT EXISTS "RXNCONSO_CODE" ON faers_b."RXNCONSO" ("CODE");
+CREATE INDEX IF NOT EXISTS "RXNSAT_RXCUI" ON faers_b."RXNSAT" ("RXCUI");
+CREATE INDEX IF NOT EXISTS "RXNSAT_RXAUI" ON faers_b."RXNSAT" ("RXCUI", "RXAUI");
+CREATE INDEX IF NOT EXISTS "RXNREL_RXCUI1" ON faers_b."RXNREL" ("RXCUI1");
+CREATE INDEX IF NOT EXISTS "RXNREL_RXCUI2" ON faers_b."RXNREL" ("RXCUI2");
+CREATE INDEX IF NOT EXISTS "RXNREL_RXAUI1" ON faers_b."RXNREL" ("RXAUI1");
+CREATE INDEX IF NOT EXISTS "RXNREL_RXAUI2" ON faers_b."RXNREL" ("RXAUI2");
+CREATE INDEX IF NOT EXISTS "RXNREL_RELA" ON faers_b."RXNREL" ("RELA");
+CREATE INDEX IF NOT EXISTS "RXNREL_REL" ON faers_b."RXNREL" ("REL");

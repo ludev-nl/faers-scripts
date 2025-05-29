@@ -6,22 +6,22 @@ import re
 import time
 from psycopg import errors as pg_errors
 
-# --- Logging Setup ---
+# Logging Setup
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("s2-5_execution.log"),
+        logging.FileHandler("s5_execution.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
+# Configuration
 CONFIG_FILE = "config.json"
-SQL_FILE_PATH = "s2-5.sql"
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
+SQL_FILE_PATH = "s5.sql"
+MAX_RETRIES = 1
+RETRY_DELAY = 1  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -52,66 +52,91 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
             else:
                 logger.error(f"Failed after {retries} attempts: {e}")
                 raise
-        except (pg_errors.DuplicateTable, pg_errors.DuplicateObject) as e:
+        except (pg_errors.DuplicateTable, pg_errors.DuplicateObject, pg_errors.DuplicateIndex) as e:
             logger.info(f"Object already exists: {e}. Skipping.")
             return True
-        except pg_errors.SyntaxError as e:
-            logger.warning(f"Syntax error, possibly non-executable statement: {e}")
-            return True
         except pg_errors.Error as e:
-            logger.error(f"Non-retryable database error: {e}")
+            logger.error(f"Database error: {e}")
             raise
     return False
 
-def verify_tables(cur, tables):
+def verify_tables():
     """Verify that all expected tables exist and log their row counts."""
-    for table in tables:
-        try:
-            cur.execute(f"SELECT COUNT(*) FROM faers_combined.\"{table}\"")
-            count = cur.fetchone()[0]
-            logger.info(f"Table faers_combined.\"{table}\" exists with {count} rows")
-        except pg_errors.Error as e:
-            logger.error(f"Table faers_combined.\"{table}\" does not exist or is inaccessible: {e}")
+    tables = [
+        "DRUG_Mapper", "RXNATOMARCHIVE", "RXNCONSO", "RXNREL", "RXNSAB",
+        "RXNSAT", "RXNSTY", "RXNDOC", "RXNCUICHANGES", "RXNCUI"
+    ]
+    try:
+        with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
+            with conn.cursor() as cur:
+                # Verify schema
+                cur.execute("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
+                if not cur.fetchone():
+                    logger.error("Schema faers_b does not exist")
+                    return
+                logger.info("Schema faers_b exists")
+
+                for table in tables:
+                    try:
+                        cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
+                        count = cur.fetchone()[0]
+                        logger.info(f"Table faers_b.\"{table}\" exists with {count} rows")
+                    except pg_errors.Error as e:
+                        logger.error(f"Table faers_b.\"{table}\" does not exist or is inaccessible: {e}")
+    except Exception as e:
+        logger.error(f"Error verifying tables: {e}")
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into valid statements, preserving DO blocks."""
+    """Parse SQL script into valid statements, preserving DO blocks and skipping \\copy."""
     statements = []
     current_statement = []
     in_do_block = False
     do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
-    do_block_end = re.compile(r'^\s*\$\$;?$', re.IGNORECASE)
+    dollar_quote = re.compile(r'\$\$')
+    comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
+    comment_inline = re.compile(r'--.*$', re.MULTILINE)
+    copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
+
+    sql_script = re.sub(comment_line, '', sql_script)
+    sql_script = re.sub(comment_inline, '', sql_script)
 
     lines = sql_script.splitlines()
+    dollar_count = 0
     for line in lines:
         line = line.strip()
-        if not line or re.match(r'^\s*--', line):
+        if not line:
+            continue
+
+        if copy_command.match(line):
+            logger.debug(f"Skipping \\copy command: {line[:100]}...")
             continue
 
         if do_block_start.match(line):
             in_do_block = True
+            dollar_count = 0
             current_statement.append(line)
-        elif do_block_end.match(line) and in_do_block:
+        elif dollar_quote.search(line):
+            dollar_count += len(dollar_quote.findall(line))
             current_statement.append(line)
-            statements.append("\n".join(current_statement))
-            current_statement = []
-            in_do_block = False
+            if in_do_block and dollar_count % 2 == 0:
+                statements.append("\n".join(current_statement))
+                current_statement = []
+                in_do_block = False
         elif in_do_block:
             current_statement.append(line)
         else:
+            current_statement.append(line)
             if line.endswith(";"):
-                current_statement.append(line[:-1])
                 statements.append("\n".join(current_statement))
                 current_statement = []
-            else:
-                current_statement.append(line)
 
     if current_statement:
         statements.append("\n".join(current_statement))
 
-    return [s.strip() for s in statements if s.strip()]
+    return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 
-def run_s2_5_sql():
-    """Execute s2-5.sql to create combined tables in faers_combined schema."""
+def run_s5_sql():
+    """Execute s5.sql to create DRUG_Mapper and RxNorm tables in faers_b schema."""
     config = load_config()
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
@@ -121,19 +146,30 @@ def run_s2_5_sql():
 
     logger.info(f"Connection parameters: {db_params}")
 
-    tables = [
-        "DEMO_Combined", "DRUG_Combined", "INDI_Combined", "THER_Combined",
-        "REAC_Combined", "RPSR_Combined", "OUTC_Combined", "COMBINED_DELETED_CASES"
-    ]
-
     try:
         with psycopg.connect(**db_params) as conn:
-            logger.info("Connected to database")
-            conn.autocommit = False
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                logger.info("Connected to PostgreSQL server")
+                cur.execute("SELECT version();")
+                pg_version = cur.fetchone()[0]
+                logger.info(f"PostgreSQL server version: {pg_version}")
+
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
+                if not cur.fetchone():
+                    logger.info("faersdatabase does not exist, creating it")
+                    cur.execute("CREATE DATABASE faersdatabase")
+                    logger.info("Created faersdatabase")
+                else:
+                    logger.info("faersdatabase already exists")
+
+        with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
+            logger.info("Connected to faersdatabase")
+            conn.autocommit = True  # Use autocommit to avoid transaction rollback
             with conn.cursor() as cur:
                 if not os.path.exists(SQL_FILE_PATH):
                     logger.error(f"SQL file {SQL_FILE_PATH} not found")
-                    raise FileNotFoundError(f"SQL file {SQL_FILE_PATH} not found")
+                    raise FileNotFoundError(SQL_FILE_PATH)
 
                 with open(SQL_FILE_PATH, "r", encoding="utf-8") as f:
                     sql_script = f.read()
@@ -145,26 +181,22 @@ def run_s2_5_sql():
                     logger.debug(f"Statement {i} (length: {len(stmt)}): {stmt[:1000]}...")
 
                 for i, stmt in enumerate(statements, 1):
-                    logger.info(f"Executing statement {i}: {stmt[:100]}...")
+                    logger.info(f"Executing statement {i}...")
                     try:
-                        with conn.transaction():
-                            execute_with_retry(cur, stmt)
+                        execute_with_retry(cur, stmt)
                     except pg_errors.Error as e:
                         logger.error(f"Error executing statement {i}: {e}")
                         logger.error(f"Failed statement: {stmt[:1000]}...")
-                        conn.rollback()
                         continue
                     except Exception as e:
                         logger.error(f"Unexpected error in statement {i}: {e}")
-                        conn.rollback()
                         raise
 
-                conn.commit()
                 logger.info("All statements executed successfully")
 
-                verify_tables(cur, tables)
+                verify_tables()
 
-    except psycopg.Error as e:
+    except pg_errors.Error as e:
         logger.error(f"Database error: {e}")
         raise
     except Exception as e:
@@ -177,7 +209,7 @@ def run_s2_5_sql():
 
 if __name__ == "__main__":
     try:
-        run_s2_5_sql()
+        run_s5_sql()
     except Exception as e:
         logger.error(f"Script execution failed: {e}")
         exit(1)
