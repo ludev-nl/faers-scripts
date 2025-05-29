@@ -1,237 +1,219 @@
-﻿USE FAERS_B
-GO
+﻿import json
+import logging
+import os
+import psycopg
+import re
+import time
+from psycopg import errors as pg_errors
 
--- Create a string cleaning function to standardize all cleaning operations
-CREATE OR ALTER FUNCTION dbo.CleanDrugString(@input VARCHAR(MAX))
-RETURNS VARCHAR(MAX)
-AS
-BEGIN
-    DECLARE @output VARCHAR(MAX) = @input;
-    
-    -- Remove numeric patterns like /00032601/
-    IF PATINDEX('%/[0-9][0-9][0-9][0-9][0-9]%/%', @output) > 0    
-        SET @output = LEFT(@output, PATINDEX('%/[0-9][0-9][0-9][0-9][0-9]%/%', @output) - 1);
-    
-    -- Remove country patterns like /USA/
-    IF CHARINDEX('   /', @output) > 0
-        SET @output = LEFT(@output, CHARINDEX('   /', @output) - 1);
-    
-    -- Standardize separators
-    SET @output = REPLACE(@output, '|', '/');
-    SET @output = REPLACE(@output, ',', '/');
-    SET @output = REPLACE(@output, '+', '/');
-    SET @output = REPLACE(@output, ';', ' / ');
-    SET @output = REPLACE(@output, '\', '/');
-    
-    -- Clean dashes and hyphens
-    SET @output = REPLACE(@output, ' -', ' ');
-    SET @output = REPLACE(@output, ' –', ' ');
-    SET @output = REPLACE(@output, '–', ' ');
-    
-    -- Remove control characters
-    SET @output = REPLACE(REPLACE(REPLACE(@output, CHAR(10), ''), CHAR(13), ''), CHAR(9), '');
-    
-    -- Standardize slashes
-    SET @output = REPLACE(@output, '/', ' / ');
-    
-    -- Trim and clean extra spaces
-    SET @output = LTRIM(RTRIM(@output));
-    SET @output = REPLACE(@output, '  ', ' ');
-    
-    RETURN @output;
-END;
-GO
+# Logging Setup
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("s6_execution.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
--- Create a function to extract content from parentheses
-CREATE OR ALTER FUNCTION dbo.ExtractFromParentheses(@input VARCHAR(MAX))
-RETURNS VARCHAR(MAX)
-AS
-BEGIN
-    RETURN CASE 
-        WHEN CHARINDEX('(', @input) > 0 AND CHARINDEX(')', @input) > CHARINDEX('(', @input) 
-        THEN SUBSTRING(@input, CHARINDEX('(', @input)+1, CHARINDEX(')', @input)-CHARINDEX('(', @input)-1)
-        ELSE NULL 
-    END;
-END;
-GO
+# Configuration
+CONFIG_FILE = "config.json"
+SQL_FILE_PATH = "s6.sql"
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
--- Create a function to remove parentheses and their content
-CREATE OR ALTER FUNCTION dbo.RemoveParentheses(@input VARCHAR(MAX))
-RETURNS VARCHAR(MAX)
-AS
-BEGIN
-    RETURN CASE 
-        WHEN CHARINDEX('(', @input) > 0 AND CHARINDEX(')', @input) > CHARINDEX('(', @input) 
-        THEN STUFF(@input, CHARINDEX('(', @input), (CHARINDEX(')', @input) - CHARINDEX('(', @input)) + 1, '')
-        ELSE @input
-    END;
-END;
-GO
+def load_config():
+    """Load configuration from config.json."""
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        logger.info(f"Loaded configuration from {CONFIG_FILE}")
+        return config
+    except FileNotFoundError:
+        logger.error(f"Config file {CONFIG_FILE} not found")
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding {CONFIG_FILE}: {e}")
+        raise
 
--- Add cleaned columns with proper data types
-ALTER TABLE DRUG_Mapper
-ADD CLEANED_DRUGNAME VARCHAR(600),
-    CLEANED_PROD_AI VARCHAR(500);
-GO
+def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
+    """Execute a SQL statement with retries for transient errors."""
+    for attempt in range(1, retries + 1):
+        try:
+            cur.execute(statement)
+            logger.debug(f"Statement executed successfully on attempt {attempt}")
+            return True
+        except (pg_errors.OperationalError, pg_errors.DatabaseError) as e:
+            logger.warning(f"Attempt {attempt} failed: {e}")
+            if attempt < retries:
+                logger.info(f"Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                logger.error(f"Failed after {retries} attempts: {e}")
+                raise
+        except (pg_errors.DuplicateTable, pg_errors.DuplicateObject, pg_errors.DuplicateIndex) as e:
+            logger.info(f"Object already exists: {e}. Skipping.")
+            return True
+        except pg_errors.Error as e:
+            logger.error(f"Database error: {e}")
+            raise
+    return False
 
--- Create indexes for performance
-CREATE INDEX idx_DRUG_Mapper_Notes ON DRUG_Mapper(NOTES) WHERE NOTES IS NULL;
-CREATE INDEX idx_DRUG_Mapper_Cleaned ON DRUG_Mapper(CLEANED_DRUGNAME, CLEANED_PROD_AI) WHERE NOTES IS NULL;
-GO
+def verify_tables():
+    """Verify that expected tables exist and log their row counts, warning if missing."""
+    tables = [
+        "DRUG_RxNorm_Mapping"
+    ]
+    try:
+        with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
+            with conn.cursor() as cur:
+                # Verify schema
+                cur.execute("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
+                if not cur.fetchone():
+                    logger.warning("Schema faers_b does not exist, skipping table verification")
+                    return
+                logger.info("Schema faers_b exists")
 
--- Perform all cleaning in a single update per column
-BEGIN TRANSACTION;
-    -- Clean drug names
-    UPDATE DRUG_Mapper
-    SET CLEANED_DRUGNAME = dbo.CleanDrugString(DRUGNAME)
-    WHERE NOTES IS NULL;
-    
-    -- Clean product active ingredients
-    UPDATE DRUG_Mapper
-    SET CLEANED_PROD_AI = dbo.CleanDrugString(PROD_AI)
-    WHERE NOTES IS NULL;
-COMMIT TRANSACTION;
-GO
+                for table in tables:
+                    try:
+                        cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
+                        count = cur.fetchone()[0]
+                        if count == 0:
+                            logger.warning(f"Table faers_b.\"{table}\" exists but is empty")
+                        else:
+                            logger.info(f"Table faers_b.\"{table}\" exists with {count} rows")
+                    except pg_errors.Error as e:
+                        logger.warning(f"Table faers_b.\"{table}\" does not exist or is inaccessible: {e}")
+    except Exception as e:
+        logger.error(f"Error verifying tables: {e}")
 
--- Optimized mapping updates
-BEGIN TRANSACTION;
-    -- Create temp table for cleaned data to avoid repeated calculations
-    SELECT 
-        DM.ID,
-        DM.CLEANED_DRUGNAME,
-        DM.CLEANED_PROD_AI,
-        dbo.ExtractFromParentheses(DM.CLEANED_DRUGNAME) AS DrugName_InsideParens,
-        dbo.ExtractFromParentheses(DM.CLEANED_PROD_AI) AS ProdAI_InsideParens,
-        dbo.RemoveParentheses(DM.CLEANED_DRUGNAME) AS DrugName_NoParens,
-        dbo.RemoveParentheses(DM.CLEANED_PROD_AI) AS ProdAI_NoParens
-    INTO #CleanedDrugData
-    FROM DRUG_Mapper DM
-    WHERE DM.NOTES IS NULL;
-    
-    CREATE INDEX idx_CleanedDrugData ON #CleanedDrugData(ID);
-    
-    -- Consolidated mapping updates for RXNCONSO
-    -- Match with content inside parentheses (RXNORM, TTY IN/MIN/PIN)
-    UPDATE DM
-    SET RXAUI = R.RXAUI, 
-        RXCUI = R.RXCUI, 
-        NOTES = '8.1-8.4',
-        SAB = R.SAB, 
-        TTY = R.TTY, 
-        STR = R.STR, 
-        CODE = R.CODE
-    FROM DRUG_Mapper DM
-    JOIN #CleanedDrugData CD ON DM.ID = CD.ID
-    JOIN RXNCONSO R ON R.STR = CD.DrugName_InsideParens OR R.STR = CD.ProdAI_InsideParens
-    WHERE DM.NOTES IS NULL
-    AND R.SAB = 'RXNORM'
-    AND R.TTY IN ('MIN', 'IN', 'PIN');
-    
-    -- Match with content outside parentheses (RXNORM, TTY IN/MIN/PIN)
-    UPDATE DM
-    SET RXAUI = R.RXAUI, 
-        RXCUI = R.RXCUI, 
-        NOTES = '8.3-8.4',
-        SAB = R.SAB, 
-        TTY = R.TTY, 
-        STR = R.STR, 
-        CODE = R.CODE
-    FROM DRUG_Mapper DM
-    JOIN #CleanedDrugData CD ON DM.ID = CD.ID
-    JOIN RXNCONSO R ON R.STR = CD.DrugName_NoParens OR R.STR = CD.ProdAI_NoParens
-    WHERE DM.NOTES IS NULL
-    AND R.SAB = 'RXNORM'
-    AND R.TTY IN ('MIN', 'IN', 'PIN');
-    
-    -- Match with content inside parentheses (TTY IN only)
-    UPDATE DM
-    SET RXAUI = R.RXAUI, 
-        RXCUI = R.RXCUI, 
-        NOTES = '8.9-8.12',
-        SAB = R.SAB, 
-        TTY = R.TTY, 
-        STR = R.STR, 
-        CODE = R.CODE
-    FROM DRUG_Mapper DM
-    JOIN #CleanedDrugData CD ON DM.ID = CD.ID
-    JOIN RXNCONSO R ON R.STR = CD.DrugName_InsideParens OR R.STR = CD.ProdAI_InsideParens
-    WHERE DM.NOTES IS NULL
-    AND R.TTY = 'IN';
-    
-    -- Match with content outside parentheses (TTY IN only)
-    UPDATE DM
-    SET RXAUI = R.RXAUI, 
-        RXCUI = R.RXCUI, 
-        NOTES = '8.11-8.12',
-        SAB = R.SAB, 
-        TTY = R.TTY, 
-        STR = R.STR, 
-        CODE = R.CODE
-    FROM DRUG_Mapper DM
-    JOIN #CleanedDrugData CD ON DM.ID = CD.ID
-    JOIN RXNCONSO R ON R.STR = CD.DrugName_NoParens OR R.STR = CD.ProdAI_NoParens
-    WHERE DM.NOTES IS NULL
-    AND R.TTY = 'IN';
-    
-    -- Consolidated IDD mapping updates
-    -- Match with content inside parentheses
-    UPDATE DM
-    SET RXAUI = R.RXAUI, 
-        RXCUI = R.RXCUI, 
-        NOTES = '8.5-8.8',
-        SAB = R.SAB, 
-        TTY = R.TTY, 
-        STR = R.STR, 
-        CODE = R.CODE
-    FROM DRUG_Mapper DM
-    JOIN #CleanedDrugData CD ON DM.ID = CD.ID
-    JOIN IDD ON IDD.DRUGNAME = CD.DrugName_InsideParens OR IDD.DRUGNAME = CD.ProdAI_InsideParens
-    JOIN RXNCONSO R ON R.RXAUI = IDD.RXAUI
-    WHERE DM.NOTES IS NULL
-    AND R.SAB = 'RXNORM'
-    AND R.TTY IN ('MIN', 'IN', 'PIN');
-    
-    -- Match with content outside parentheses
-    UPDATE DM
-    SET RXAUI = R.RXAUI, 
-        RXCUI = R.RXCUI, 
-        NOTES = '8.7-8.8',
-        SAB = R.SAB, 
-        TTY = R.TTY, 
-        STR = R.STR, 
-        CODE = R.CODE
-    FROM DRUG_Mapper DM
-    JOIN #CleanedDrugData CD ON DM.ID = CD.ID
-    JOIN IDD ON IDD.DRUGNAME = CD.DrugName_NoParens OR IDD.DRUGNAME = CD.ProdAI_NoParens
-    JOIN RXNCONSO R ON R.RXAUI = IDD.RXAUI
-    WHERE DM.NOTES IS NULL
-    AND R.SAB = 'RXNORM'
-    AND R.TTY IN ('MIN', 'IN', 'PIN');
-    
-    -- Clean up temp table
-    DROP TABLE #CleanedDrugData;
-COMMIT TRANSACTION;
-GO
+def parse_sql_statements(sql_script):
+    """Parse SQL script into individual statements, preserving DO blocks."""
+    statements = []
+    current_statement = []
+    in_do_block = False
+    do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
+    dollar_quote = re.compile(r'\$\$')
+    comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
+    comment_inline = re.compile(r'--.*$', re.MULTILINE)
+    copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
 
--- Final cleanup of parentheses (replaces the WHILE loops)
-BEGIN TRANSACTION;
-    -- Remove all parentheses from drug names
-    UPDATE DRUG_Mapper
-    SET CLEANED_DRUGNAME = dbo.RemoveParentheses(CLEANED_DRUGNAME)
-    WHERE NOTES IS NULL;
-    
-    -- Remove all parentheses from product active ingredients
-    UPDATE DRUG_Mapper
-    SET CLEANED_PROD_AI = dbo.RemoveParentheses(CLEANED_PROD_AI)
-    WHERE NOTES IS NULL;
-    
-    -- Final whitespace cleanup
-    UPDATE DRUG_Mapper
-    SET CLEANED_DRUGNAME = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_DRUGNAME, '  ', ' '), CHAR(10), ''), CHAR(13), '')))
-    WHERE NOTES IS NULL;
-    
-    UPDATE DRUG_Mapper
-    SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, '  ', ' '), CHAR(10), ''), CHAR(13), '')))
-    WHERE NOTES IS NULL;
-COMMIT TRANSACTION;
-GO
+    # Remove BOM and comments
+    sql_script = sql_script.lstrip('\ufeff')
+    sql_script = re.sub(comment_line, '', sql_script)
+    sql_script = re.sub(comment_inline, '', sql_script)
+
+    lines = sql_script.splitlines()
+    dollar_count = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        if copy_command.match(line):
+            logger.debug(f"Skipping \\copy command: {line[:100]}...")
+            continue
+
+        if do_block_start.match(line):
+            in_do_block = True
+            dollar_count = 0
+            current_statement.append(line)
+        elif dollar_quote.search(line):
+            dollar_count += len(dollar_quote.findall(line))
+            current_statement.append(line)
+            if in_do_block and dollar_count % 2 == 0:
+                statements.append("\n".join(current_statement))
+                current_statement = []
+                in_do_block = False
+        elif in_do_block:
+            current_statement.append(line)
+        else:
+            current_statement.append(line)
+            if line.endswith(";"):
+                statements.append("\n".join(current_statement))
+                current_statement = []
+
+    if current_statement:
+        statements.append("\n".join(current_statement))
+
+    return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
+
+def run_s6_sql():
+    """Execute s6.sql to create DRUG_RxNorm_Mapping in faers_b schema."""
+    config = load_config()
+    db_params = config.get("database", {})
+    required_keys = ["host", "port", "user", "dbname", "password"]
+    if not all(key in db_params for key in required_keys):
+        logger.error(f"Missing required database parameters: {required_keys}")
+        raise ValueError("Missing database configuration")
+
+    logger.info(f"Connection parameters: {db_params}")
+
+    try:
+        with psycopg.connect(**db_params) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                logger.info("Connected to PostgreSQL server")
+                cur.execute("SELECT version();")
+                pg_version = cur.fetchone()[0]
+                logger.info(f"PostgreSQL server version: {pg_version}")
+
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
+                if not cur.fetchone():
+                    logger.info("faersdatabase does not exist, creating it")
+                    cur.execute("CREATE DATABASE faersdatabase")
+                    logger.info("Created faersdatabase")
+                else:
+                    logger.info("faersdatabase already exists")
+
+        with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
+            logger.info("Connected to faersdatabase")
+            conn.autocommit = True  # Use autocommit to avoid transaction rollback
+            with conn.cursor() as cur:
+                if not os.path.exists(SQL_FILE_PATH):
+                    logger.error(f"SQL file {SQL_FILE_PATH} not found")
+                    raise FileNotFoundError(SQL_FILE_PATH)
+
+                with open(SQL_FILE_PATH, "r", encoding="utf-8-sig") as f:
+                    sql_script = f.read()
+                logger.info(f"Read SQL script from {SQL_FILE_PATH}")
+
+                statements = parse_sql_statements(sql_script)
+
+                for i, stmt in enumerate(statements, 1):
+                    logger.debug(f"Statement {i} (length: {len(stmt)}): {stmt[:1000]}...")
+
+                for i, stmt in enumerate(statements, 1):
+                    logger.info(f"Executing statement {i}...")
+                    try:
+                        execute_with_retry(cur, stmt)
+                    except pg_errors.Error as e:
+                        logger.warning(f"Error executing statement {i}: {e}")
+                        logger.warning(f"Failed statement: {stmt[:1000]}...")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Unexpected error in statement {i}: {e}")
+                        raise
+
+                logger.info("All statements executed successfully")
+
+                verify_tables()
+
+    except pg_errors.Error as e:
+        logger.error(f"Database error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise
+    finally:
+        if 'conn' in locals():
+            conn.close()
+            logger.info("Database connection closed")
+
+if __name__ == "__main__":
+    try:
+        run_s6_sql()
+    except Exception as e:
+        logger.error(f"Script execution failed: {e}")
+        exit(1)

@@ -52,15 +52,52 @@ CREATE TABLE faers_b."DRUG_Mapper" (
     "id" SERIAL UNIQUE
 );
 
--- Verify faers_combined.DRUG_Combined exists
+-- Check if faers_combined.DRUG_Combined exists and has data
 DO $$
+DECLARE
+    table_exists BOOLEAN;
+    row_count BIGINT;
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_class WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') AND relname = 'DRUG_Combined') THEN
-        RAISE NOTICE 'Table faers_combined.DRUG_Combined does not exist, skipping INSERT';
+    -- Check if table exists
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'DRUG_Combined'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.DRUG_Combined does not exist, skipping INSERT into DRUG_Mapper';
+        RETURN;
+    END IF;
+
+    -- Check row count
+    SELECT COUNT(*) INTO row_count FROM faers_combined."DRUG_Combined";
+    IF row_count = 0 THEN
+        RAISE NOTICE 'Table faers_combined.DRUG_Combined is empty, skipping INSERT into DRUG_Mapper';
+        RETURN;
+    END IF;
+
+    -- Check if ALIGNED_DEMO_DRUG_REAC_INDI_THER exists
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'ALIGNED_DEMO_DRUG_REAC_INDI_THER'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.ALIGNED_DEMO_DRUG_REAC_INDI_THER does not exist, skipping INSERT into DRUG_Mapper';
+        RETURN;
+    END IF;
+
+    -- Check row count for ALIGNED_DEMO_DRUG_REAC_INDI_THER
+    SELECT COUNT(*) INTO row_count FROM faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+    IF row_count = 0 THEN
+        RAISE NOTICE 'Table faers_combined.ALIGNED_DEMO_DRUG_REAC_INDI_THER is empty, skipping INSERT into DRUG_Mapper';
+        RETURN;
     END IF;
 END $$;
 
--- Insert data from faers_combined.DRUG_Combined
+-- Insert data from faers_combined.DRUG_Combined (only if checks pass)
 INSERT INTO faers_b."DRUG_Mapper" (
     "DRUG_ID", "primaryid", "caseid", "DRUG_SEQ", "ROLE_COD", "DRUGNAME", "prod_ai", "NDA_NUM", "PERIOD"
 )

@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s5.sql"
-MAX_RETRIES = 1
-RETRY_DELAY = 1  # seconds
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -61,7 +61,7 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
     return False
 
 def verify_tables():
-    """Verify that all expected tables exist and log their row counts."""
+    """Verify that expected tables exist and log their row counts, warning if missing."""
     tables = [
         "DRUG_Mapper", "RXNATOMARCHIVE", "RXNCONSO", "RXNREL", "RXNSAB",
         "RXNSAT", "RXNSTY", "RXNDOC", "RXNCUICHANGES", "RXNCUI"
@@ -72,7 +72,7 @@ def verify_tables():
                 # Verify schema
                 cur.execute("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
                 if not cur.fetchone():
-                    logger.error("Schema faers_b does not exist")
+                    logger.warning("Schema faers_b does not exist, skipping table verification")
                     return
                 logger.info("Schema faers_b exists")
 
@@ -80,14 +80,17 @@ def verify_tables():
                     try:
                         cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
                         count = cur.fetchone()[0]
-                        logger.info(f"Table faers_b.\"{table}\" exists with {count} rows")
+                        if count == 0:
+                            logger.warning(f"Table faers_b.\"{table}\" exists but is empty")
+                        else:
+                            logger.info(f"Table faers_b.\"{table}\" exists with {count} rows")
                     except pg_errors.Error as e:
-                        logger.error(f"Table faers_b.\"{table}\" does not exist or is inaccessible: {e}")
+                        logger.warning(f"Table faers_b.\"{table}\" does not exist or is inaccessible: {e}")
     except Exception as e:
         logger.error(f"Error verifying tables: {e}")
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into valid statements, preserving DO blocks and skipping \\copy."""
+    """Parse SQL script into individual statements, preserving DO blocks."""
     statements = []
     current_statement = []
     in_do_block = False
@@ -185,8 +188,8 @@ def run_s5_sql():
                     try:
                         execute_with_retry(cur, stmt)
                     except pg_errors.Error as e:
-                        logger.error(f"Error executing statement {i}: {e}")
-                        logger.error(f"Failed statement: {stmt[:1000]}...")
+                        logger.warning(f"Error executing statement {i}: {e}")
+                        logger.warning(f"Failed statement: {stmt[:1000]}...")
                         continue
                     except Exception as e:
                         logger.error(f"Unexpected error in statement {i}: {e}")

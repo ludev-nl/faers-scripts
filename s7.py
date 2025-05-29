@@ -11,7 +11,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("s6_execution.log", encoding='utf-8'),
+        logging.FileHandler("s7_execution.log", encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 CONFIG_FILE = "config.json"
-SQL_FILE_PATH = "s6.sql"
+SQL_FILE_PATH = "s7.sql"
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
@@ -63,7 +63,7 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
 def verify_tables():
     """Verify that expected tables exist and log their row counts, warning if missing."""
     tables = [
-        "DRUG_RxNorm_Mapping"
+        "FAERS_Analysis_Summary"
     ]
     try:
         with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
@@ -139,8 +139,8 @@ def parse_sql_statements(sql_script):
 
     return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 
-def run_s6_sql():
-    """Execute s6.sql to create DRUG_RxNorm_Mapping in faers_b schema."""
+def run_s7_sql():
+    """Execute s7.sql to create FAERS_Analysis_Summary in faers_b schema."""
     config = load_config()
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
@@ -213,7 +213,7 @@ def run_s6_sql():
 
 if __name__ == "__main__":
     try:
-        run_s6_sql()
+        run_s7_sql()
     except Exception as e:
         logger.error(f"Script execution failed: {e}")
         exit(1)
