@@ -1,299 +1,217 @@
-﻿
-/************************************** CREATING FAERS_B DATABASE***************************************
+-- Create DRUG_Mapper table
+DROP TABLE IF EXISTS "DRUG_Mapper";
+CREATE TABLE "DRUG_Mapper" (
+    "DRUG_ID" INTEGER PRIMARY KEY,
+    "primaryid" BIGINT,
+    "caseid" BIGINT,
+    "DRUG_SEQ" BIGINT,
+    "ROLE_COD" VARCHAR(2),
+    "PERIOD" VARCHAR(4),
+    "DRUGNAME" TEXT,
+    "prod_ai" TEXT,
+    "NDA_NUM" VARCHAR(200),
+    "NOTES" VARCHAR(100),
+    "RXAUI" BIGINT,
+    "RXCUI" BIGINT,
+    "STR" TEXT,
+    "SAB" VARCHAR(20),
+    "TTY" VARCHAR(20),
+    "CODE" VARCHAR(50),
+    "remapping_NOTES" VARCHAR(100),
+    "remapping_RXAUI" VARCHAR(8),
+    "remapping_RXCUI" VARCHAR(8),
+    "remapping_STR" TEXT,
+    "remapping_SAB" VARCHAR(20),
+    "remapping_TTY" VARCHAR(20),
+    "remapping_CODE" VARCHAR(50)
+);
 
-*********************************************************************************************************************/
-
-IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = '[FAERS_B]')
-  BEGIN
-    CREATE DATABASE [FAERS_B]
-    END
-    GO
-------------------------------
-       USE [FAERS_B]
-    GO
---------------------------------
-ALTER DATABASE [FAERS_B] SET RECOVERY SIMPLE;
--------------------------------------------------------------------------------------------------------------------------
-/************************************** CREATING DRUG_MAPPER TABLE ***************************************
-
-*********************************************************************************************************************/
-DROP  TABLE IF EXISTS DRUG_Mapper ;
-CREATE TABLE DRUG_Mapper (
-	[DRUG_ID] [int] NOT NULL,
-	[primaryid] [bigint] NULL,
-	[caseid] [bigint] NULL,
-	[DRUG_SEQ] [bigint] NULL,
-	[ROLE_COD] [varchar](2) NULL,
-	[PERIOD] [varchar](4) NULL,
-	[DRUGNAME] [varchar](500) NULL,
-	[prod_ai] [varchar](400) NULL,
-	[NDA_NUM] [varchar](200) NULL,
-	[NOTES] [varchar](100) NULL,
-	[RXAUI] [bigint] NULL,
-	[RXCUI] [bigint] NULL,
-	[STR] [varchar](3000) NULL,
-	[SAB] [varchar](20) NULL,
-	[TTY] [varchar](20) NULL,
-	[CODE] [varchar](50) NULL,
-	[remapping_NOTES] [varchar](100) NULL,
-	[remapping_RXAUI] [varchar](8) NULL,
-	[remapping_RXCUI] [varchar](8) NULL,
-	[remapping_STR] [varchar](3000) NULL,
-	[remapping_SAB] [varchar](20) NULL,
-	[remapping_TTY] [varchar](20) NULL,
-	[remapping_CODE] [varchar](50) NULL,
-
-) 
-
-INSERT INTO DRUG_Mapper (DRUG_ID, primaryid, caseid, DRUG_SEQ, ROLE_COD,  DRUGNAME, prod_ai, NDA_NUM,  PERIOD)
-SELECT DRUG_ID, primaryid, caseid, DRUG_SEQ, ROLE_COD,  DRUGNAME, prod_ai, NDA_NUM,  PERIOD
-FROM [FAERS_A].dbo.DRUG_Combined
-WHERE primaryid IN (SELECT primaryid FROM [FAERS_A].[dbo].[ALIGNED_DEMO_DRUG_REAC_INDI_THER]);
-------------------------------
-
-CREATE INDEX DRUGNAME_INDEX
-ON DRUG_Mapper ( DRUGNAME )
-GO
-
-
-/************************************** CREATE RXNORM TABLES AND LOADING TABLES***************************************
-
-JUST UPDATE THE FILES LOCATION IN THE CODE
-*********************************************************************************************************************/
-
-
-DROP  TABLE IF EXISTS RXNATOMARCHIVE;
-CREATE TABLE RXNATOMARCHIVE
-(
-   RXAUI             varchar(8) NOT NULL,
-   AUI               varchar(10),
-   STR               varchar(4000) NOT NULL,
-   ARCHIVE_TIMESTAMP varchar(280) NOT NULL,
-   CREATED_TIMESTAMP varchar(280) NOT NULL,
-   UPDATED_TIMESTAMP varchar(280) NOT NULL,
-   CODE              varchar(50),
-   IS_BRAND          varchar(1),
-   LAT               varchar(3),
-   LAST_RELEASED     varchar(30),
-   SAUI              varchar(50),
-   VSAB              varchar(40),
-   RXCUI             varchar(8),
-   SAB               varchar(20),
-   TTY               varchar(20),
-   MERGED_TO_RXCUI   varchar(8)
+-- Insert data into DRUG_Mapper (requires faers_a schema access)
+INSERT INTO "DRUG_Mapper" (
+    "DRUG_ID", "primaryid", "caseid", "DRUG_SEQ", "ROLE_COD", "DRUGNAME", "prod_ai", "NDA_NUM", "PERIOD"
 )
-;
+SELECT "DRUG_ID", "primaryid", "caseid", "DRUG_SEQ", "ROLE_COD", "DRUGNAME", "prod_ai", "NDA_NUM", "PERIOD"
+FROM faers_a."DRUG_Combined"
+WHERE "primaryid" IN (SELECT "primaryid" FROM faers_a."ALIGNED_DEMO_DRUG_REAC_INDI_THER");
 
-DROP  TABLE IF EXISTS RXNCONSO;
-CREATE TABLE RXNCONSO
-(
-   RXCUI             varchar(8) NOT NULL,
-   LAT               varchar (3) DEFAULT 'ENG' NOT NULL,
-   TS                varchar (1),
-   LUI               varchar(8),
-   STT               varchar (3),
-   SUI               varchar (8),
-   ISPREF            varchar (1),
-   RXAUI             varchar(8) NOT NULL,
-   SAUI              varchar (50),
-   SCUI              varchar (50),
-   SDUI              varchar (50),
-   SAB               varchar (20) NOT NULL,
-   TTY               varchar (20) NOT NULL,
-   CODE              varchar (50) NOT NULL,
-   STR               varchar (3000) NOT NULL,
-   SRL               varchar (10),
-   SUPPRESS          varchar (1),
-   CVF               varchar(50)
-)
-;
+-- Create RXNATOMARCHIVE table
+DROP TABLE IF EXISTS "RXNATOMARCHIVE";
+CREATE TABLE "RXNATOMARCHIVE" (
+    "RXAUI" VARCHAR(8) NOT NULL,
+    "AUI" VARCHAR(10),
+    "STR" TEXT NOT NULL,
+    "ARCHIVE_TIMESTAMP" VARCHAR(280) NOT NULL,
+    "CREATED_TIMESTAMP" VARCHAR(280) NOT NULL,
+    "UPDATED_TIMESTAMP" VARCHAR(280) NOT NULL,
+    "CODE" VARCHAR(50),
+    "IS_BRAND" VARCHAR(1),
+    "LAT" VARCHAR(3),
+    "LAST_RELEASED" VARCHAR(30),
+    "SAUI" VARCHAR(50),
+    "VSAB" VARCHAR(40),
+    "RXCUI" VARCHAR(8),
+    "SAB" VARCHAR(20),
+    "TTY" VARCHAR(20),
+    "MERGED_TO_RXCUI" VARCHAR(8)
+);
 
-DROP TABLE IF EXISTS RXNREL;
-CREATE TABLE RXNREL
-(
-   RXCUI1    varchar(8) ,
-   RXAUI1    varchar(8),
-   STYPE1    varchar(50),
-   REL       varchar(4) ,
-   RXCUI2    varchar(8) ,
-   RXAUI2    varchar(8),
-   STYPE2    varchar(50),
-   RELA      varchar(100) ,
-   RUI       varchar(10),
-   SRUI      varchar(50),
-   SAB       varchar(20) NOT NULL,
-   SL        varchar(1000),
-   DIR       varchar(1),
-   RG        varchar(10),
-   SUPPRESS  varchar(1),
-   CVF       varchar(50)
-)
-;
+-- Create RXNCONSO table
+DROP TABLE IF EXISTS "RXNCONSO";
+CREATE TABLE "RXNCONSO" (
+    "RXCUI" VARCHAR(8) NOT NULL,
+    "LAT" VARCHAR(3) NOT NULL DEFAULT 'ENG',
+    "TS" VARCHAR(1),
+    "LUI" VARCHAR(8),
+    "STT" VARCHAR(3),
+    "SUI" VARCHAR(8),
+    "ISPREF" VARCHAR(1),
+    "RXAUI" VARCHAR(8) NOT NULL,
+    "SAUI" VARCHAR(50),
+    "SCUI" VARCHAR(50),
+    "SDUI" VARCHAR(50),
+    "SAB" VARCHAR(20) NOT NULL,
+    "TTY" VARCHAR(20) NOT NULL,
+    "CODE" VARCHAR(50) NOT NULL,
+    "STR" TEXT NOT NULL,
+    "SRL" VARCHAR(10),
+    "SUPPRESS" VARCHAR(1),
+    "CVF" VARCHAR(50)
+);
 
-DROP TABLE IF EXISTS RXNSAB;
-CREATE TABLE RXNSAB
-(
-   VCUI           varchar (8),
-   RCUI           varchar (8),
-   VSAB           varchar (40),
-   RSAB           varchar (20) NOT NULL,
-   SON            varchar (3000),
-   SF             varchar (20),
-   SVER           varchar (20),
-   VSTART         varchar (10),
-   VEND           varchar (10),
-   IMETA          varchar (10),
-   RMETA          varchar (10),
-   SLC            varchar (1000),
-   SCC            varchar (1000),
-   SRL            integer,
-   TFR            integer,
-   CFR            integer,
-   CXTY           varchar (50),
-   TTYL           varchar (300),
-   ATNL           varchar (1000),
-   LAT            varchar (3),
-   CENC           varchar (20),
-   CURVER         varchar (1),
-   SABIN          varchar (1),
-   SSN            varchar (3000),
-   SCIT           varchar (4000)
-)
-;
+-- Create RXNREL table
+DROP TABLE IF EXISTS "RXNREL";
+CREATE TABLE "RXNREL" (
+    "RXCUI1" VARCHAR(8),
+    "RXAUI1" VARCHAR(8),
+    "STYPE1" VARCHAR(50),
+    "REL" VARCHAR(4),
+    "RXCUI2" VARCHAR(8),
+    "RXAUI2" VARCHAR(8),
+    "STYPE2" VARCHAR(50),
+    "RELA" VARCHAR(100),
+    "RUI" VARCHAR(10),
+    "SRUI" VARCHAR(50),
+    "SAB" VARCHAR(20) NOT NULL,
+    "SL" VARCHAR(1000),
+    "DIR" VARCHAR(1),
+    "RG" VARCHAR(10),
+    "SUPPRESS" VARCHAR(1),
+    "CVF" VARCHAR(50)
+);
 
-DROP TABLE IF EXISTS RXNSAT;
-CREATE TABLE RXNSAT
-(
-   RXCUI            varchar(8) ,
-   LUI              varchar(8),
-   SUI              varchar(8),
-   RXAUI            varchar(9),
-   STYPE            varchar (50),
-   CODE             varchar (50),
-   ATUI             varchar(11),
-   SATUI            varchar (50),
-   ATN              varchar (1000) NOT NULL,
-   SAB              varchar (20) NOT NULL,
-   ATV              varchar (4000),
-   SUPPRESS         varchar (1),
-   CVF              varchar (50)
-)
-;
+-- Create RXNSAB table
+DROP TABLE IF EXISTS "RXNSAB";
+CREATE TABLE "RXNSAB" (
+    "VCUI" VARCHAR(8),
+    "RCUI" VARCHAR(8),
+    "VSAB" VARCHAR(40),
+    "RSAB" VARCHAR(20) NOT NULL,
+    "SON" TEXT,
+    "SF" VARCHAR(20),
+    "SVER" VARCHAR(20),
+    "VSTART" VARCHAR(10),
+    "VEND" VARCHAR(10),
+    "IMETA" VARCHAR(10),
+    "RMETA" VARCHAR(10),
+    "SLC" VARCHAR(1000),
+    "SCC" VARCHAR(1000),
+    "SRL" INTEGER,
+    "TFR" INTEGER,
+    "CFR" INTEGER,
+    "CXTY" VARCHAR(50),
+    "TTYL" VARCHAR(300),
+    "ATNL" VARCHAR(1000),
+    "LAT" VARCHAR(3),
+    "CENC" VARCHAR(20),
+    "CURVER" VARCHAR(1),
+    "SABIN" VARCHAR(1),
+    "SSN" TEXT,
+    "SCIT" VARCHAR(4000)
+);
 
-DROP TABLE IF EXISTS RXNSTY;
-CREATE TABLE RXNSTY
-(
-   RXCUI          varchar(8) NOT NULL,
-   TUI            varchar (4),
-   STN            varchar (100),
-   STY            varchar (50),
-   ATUI           varchar (11),
-   CVF            varchar (50)
-)
-;
+-- Create RXNSAT table
+DROP TABLE IF EXISTS "RXNSAT";
+CREATE TABLE "RXNSAT" (
+    "RXCUI" VARCHAR(8),
+    "LUI" VARCHAR(8),
+    "SUI" VARCHAR(8),
+    "RXAUI" VARCHAR(9),
+    "STYPE" VARCHAR(50),
+    "CODE" VARCHAR(50),
+    "ATUI" VARCHAR(11),
+    "SATUI" VARCHAR(50),
+    "ATN" VARCHAR(1000) NOT NULL,
+    "SAB" VARCHAR(20) NOT NULL,
+    "ATV" VARCHAR(4000),
+    "SUPPRESS" VARCHAR(1),
+    "CVF" VARCHAR(50)
+);
 
-DROP TABLE IF EXISTS RXNDOC;
-CREATE TABLE RXNDOC (
-    DOCKEY      varchar(50) NOT NULL,
-    VALUE       varchar(1000),
-    TYPE        varchar(50) NOT NULL,
-    EXPL        varchar(1000)
-)
-;
+-- Create RXNSTY table
+DROP TABLE IF EXISTS "RXNSTY";
+CREATE TABLE "RXNSTY" (
+    "RXCUI" VARCHAR(8) NOT NULL,
+    "TUI" VARCHAR(4),
+    "STN" VARCHAR(100),
+    "STY" VARCHAR(50),
+    "ATUI" VARCHAR(11),
+    "CVF" VARCHAR(50)
+);
 
-DROP  TABLE IF EXISTS  RXNCUICHANGES;
-CREATE TABLE RXNCUICHANGES
-(
-      RXAUI         varchar(8),
-      CODE          varchar(50),
-      SAB           varchar(20),
-      TTY           varchar(20),
-      STR           varchar(3000),
-      OLD_RXCUI     varchar(8) NOT NULL,
-      NEW_RXCUI     varchar(8) NOT NULL
-)
-;
+-- Create RXNDOC table
+DROP TABLE IF EXISTS "RXNDOC";
+CREATE TABLE "RXNDOC" (
+    "DOCKEY" VARCHAR(50) NOT NULL,
+    "VALUE" VARCHAR(1000),
+    "TYPE" VARCHAR(50) NOT NULL,
+    "EXPL" VARCHAR(1000)
+);
 
-DROP  TABLE IF EXISTS  RXNCUI;
- CREATE TABLE RXNCUI (
- cui1 VARCHAR(8),
- ver_start VARCHAR(40),
- ver_end   VARCHAR(40),
- cardinality VARCHAR(8),
- cui2       VARCHAR(8) 
-)
-;
+-- Create RXNCUICHANGES table
+DROP TABLE IF EXISTS "RXNCUICHANGES";
+CREATE TABLE "RXNCUICHANGES" (
+    "RXAUI" VARCHAR(8),
+    "CODE" VARCHAR(50),
+    "SAB" VARCHAR(20),
+    "TTY" VARCHAR(20),
+    "STR" TEXT,
+    "OLD_RXCUI" VARCHAR(8) NOT NULL,
+    "NEW_RXCUI" VARCHAR(8) NOT NULL
+);
 
-BULK INSERT RXNATOMARCHIVE FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNATOMARCHIVE.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
+-- Create RXNCUI table
+DROP TABLE IF EXISTS "RXNCUI";
+CREATE TABLE "RXNCUI" (
+    "cui1" VARCHAR(8),
+    "ver_start" VARCHAR(40),
+    "ver_end" VARCHAR(40),
+    "cardinality" VARCHAR(8),
+    "cui2" VARCHAR(8)
+);
 
+-- Load data using COPY (requires pg_read_server_files privilege)
+COPY "RXNATOMARCHIVE" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNATOMARCHIVE.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNCONSO" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCONSO.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNREL" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNREL.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNSAB" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAB.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNSAT" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAT.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNSTY" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSTY.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNDOC" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNDOC.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNCUICHANGES" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUICHANGES.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
+COPY "RXNCUI" FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUI.RRF' WITH (FORMAT CSV, DELIMITER '|', NULL '', HEADER FALSE);
 
-BULK INSERT RXNCONSO FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCONSO.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-BULK INSERT RXNREL FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNREL.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-
-BULK INSERT RXNSAB FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAB.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-
-BULK INSERT RXNSAT FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSAT.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-
-BULK INSERT RXNSTY FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNSTY.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-
-BULK INSERT RXNDOC FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNDOC.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-
-BULK INSERT RXNCUICHANGES FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUICHANGES.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
-BULK INSERT RXNCUI FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/RxNorm_full_06052023/rrf/RXNCUI.RRF' WITH  ( FIRSTROW = 1, FIELDTERMINATOR = '|',  ROWTERMINATOR='0x0A');
-
-
--------===============================================================================================
-CREATE INDEX RXNCONSO_RXCUI
-ON RXNCONSO ( RXCUI);
-
-CREATE INDEX RXNCONSO_RXAUI
-ON RXNCONSO ( RXAUI);
-
-CREATE INDEX RXNCONSO_SAB
-ON RXNCONSO ( SAB);
-
-CREATE INDEX RXNCONSO_TTY
-ON RXNCONSO ( TTY);
-
-CREATE INDEX RXNCONSO_CODE
-ON RXNCONSO ( CODE);
-
-
-CREATE INDEX RXNSAT_RXCUI
-ON RXNSAT (RXCUI );
-
-CREATE INDEX RXNSAT_RXAUI
-ON RXNSAT (RXCUI, RXAUI );
-
-
-Create Index RXNREL_RXCUI1
-on RXNREL (RXCUI1);
-
-Create Index RXNREL_RXCUI2
-on RXNREL (RXCUI2);
-
-Create Index RXNREL_RXAUI1
-on RXNREL (RXAUI1);
-
-Create Index RXNREL_RXAUI2
-on RXNREL (RXAUI2);
-
-Create Index RXNREL_RELA
-on RXNREL (RELA);
-
-Create Index RXNREL_REL
-on RXNREL (REL);
+-- Create indexes after data loading
+CREATE INDEX "DRUGNAME_INDEX" ON "DRUG_Mapper" ("DRUGNAME");
+CREATE INDEX "RXNCONSO_RXCUI" ON "RXNCONSO" ("RXCUI");
+CREATE INDEX "RXNCONSO_RXAUI" ON "RXNCONSO" ("RXAUI");
+CREATE INDEX "RXNCONSO_SAB" ON "RXNCONSO" ("SAB");
+CREATE INDEX "RXNCONSO_TTY" ON "RXNCONSO" ("TTY");
+CREATE INDEX "RXNCONSO_CODE" ON "RXNCONSO" ("CODE");
+CREATE INDEX "RXNSAT_RXCUI" ON "RXNSAT" ("RXCUI");
+CREATE INDEX "RXNSAT_RXAUI" ON "RXNSAT" ("RXCUI", "RXAUI");
+CREATE INDEX "RXNREL_RXCUI1" ON "RXNREL" ("RXCUI1");
+CREATE INDEX "RXNREL_RXCUI2" ON "RXNREL" ("RXCUI2");
+CREATE INDEX "RXNREL_RXAUI1" ON "RXNREL" ("RXAUI1");
+CREATE INDEX "RXNREL_RXAUI2" ON "RXNREL" ("RXAUI2");
+CREATE INDEX "RXNREL_RELA" ON "RXNREL" ("RELA");
+CREATE INDEX "RXNREL_REL" ON "RXNREL" ("REL");
