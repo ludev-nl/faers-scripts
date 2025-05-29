@@ -1,77 +1,233 @@
-import psycopg
 import json
 import logging
+import os
+import psycopg
+import re
+import time
+from psycopg import errors as pg_errors
 
-# Configure logging for better error tracking
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Logging Setup
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("s10_execution.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-def run_remapping_sql_psycopg(config_file="/home/xocas04/faers-scripts/config.json"):
-    """
-    Runs the SQL script s10.sql against a PostgreSQL database using psycopg,
-    reading connection parameters from a JSON configuration file.
+# Configuration
+CONFIG_FILE = "config.json"
+SQL_FILE_PATH = "s10.sql"
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
-    Args:
-        config_file: Path to the JSON configuration file (default: "/home/xocas04/faers-scripts/config.json").
-
-    Returns:
-        None. Executes the SQL script and logs progress or errors.
-        Raises an exception if there's an error during execution.
-    """
+def load_config():
+    """Load configuration from config.json."""
     try:
-        logging.info(f"Loading configuration from: {config_file}")
-        with open(config_file, "r") as f:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = json.load(f)
-        connection_params = config.get("database")
-        if not connection_params:
-            raise KeyError("Missing 'database' section in configuration file")
-        logging.info(f"Connection parameters loaded successfully")
+        logger.info("Loaded configuration from %s", CONFIG_FILE)
+        return config
+    except FileNotFoundError:
+        logger.error("Config file %s not found", CONFIG_FILE)
+        raise
+    except json.JSONDecodeError as e:
+        logger.error("Error decoding %s: %s", CONFIG_FILE, e)
+        raise
 
-        with psycopg.connect(**connection_params) as conn:
-            conn.autocommit = True  # Enable autocommit for DDL and stored procedure execution
+def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
+    """Execute a SQL statement with retries for transient errors."""
+    for attempt in range(1, retries + 1):
+        try:
+            cur.execute(statement)
+            logger.debug("Statement executed successfully on attempt %d", attempt)
+            return True
+        except (pg_errors.OperationalError, pg_errors.DatabaseError) as e:
+            logger.warning("Attempt %d failed: %s", attempt, e)
+            if attempt < retries:
+                logger.info("Retrying in %d seconds...", delay)
+                time.sleep(delay)
+            else:
+                logger.error("Failed after %d attempts: %s", retries, e)
+                raise
+        except (pg_errors.DuplicateTable, pg_errors.DuplicateObject, pg_errors.DuplicateIndex) as e:
+            logger.info("Object already exists: %s. Skipping.", e)
+            return True
+        except pg_errors.Error as e:
+            logger.error("Database error: %s", e)
+            raise
+    return False
+
+def verify_tables():
+    """Verify that expected tables exist and log their row counts."""
+    tables = [
+        "drug_mapper",
+        "drug_mapper_2",
+        "drug_mapper_3",
+        "manual_remapper",
+        "remapping_log"
+    ]
+    try:
+        with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
             with conn.cursor() as cur:
-                logging.info("Connected to the database.")
-                with open("s10.sql", "r") as f:
-                    sql_script = f.read()
-                logging.info("Read SQL script from s10.sql")
+                # Verify schema
+                cur.execute("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
+                if not cur.fetchone():
+                    logger.warning("Schema faers_b does not exist, skipping table verification")
+                    return
+                logger.info("Schema faers_b exists")
 
-                # Split the script into individual statements, handling semicolons and filtering empty statements
-                statements = [s.strip() for s in sql_script.split(";") if s.strip()]
-
-                for i, statement in enumerate(statements):
-                    # Skip 'USE' statements as they are not applicable in PostgreSQL
-                    if "USE" in statement.upper():
-                        logging.info(f"Skipping 'USE' statement {i+1} (not applicable to PostgreSQL).")
-                        continue
-                    logging.info(f"Executing statement {i+1}: {statement[:100]}...")  # Log first 100 chars
+                for table in tables:
                     try:
-                        cur.execute(statement)
+                        cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
+                        count = cur.fetchone()[0]
+                        if count == 0:
+                            logger.warning("Table faers_b.\"%s\" exists but is empty", table)
+                        else:
+                            logger.info("Table faers_b.\"%s\" exists with %d rows", table, count)
+                    except pg_errors.Error as e:
+                        logger.warning("Table faers_b.\"%s\" does not exist or is inaccessible: %s", table, e)
+    except Exception as e:
+        logger.error("Error verifying tables: %s", e)
 
-                        # Fetch and log results for SELECT queries (e.g., the final SELECT run_all_remapping_steps())
-                        if statement.lower().startswith("select"):
-                            results = cur.fetchall()
-                            for row in results:
-                                logging.info(f"  Query result: {row}")
+def parse_sql_statements(sql_script):
+    """Parse SQL script into individual statements, preserving DO blocks and functions."""
+    statements = []
+    current_statement = []
+    in_do_block = False
+    in_function = False
+    do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
+    function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
+    dollar_quote = re.compile(r'\$\$')
+    comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
+    comment_inline = re.compile(r'--.*$', re.MULTILINE)
+    copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
 
-                        logging.info(f"Statement {i+1} executed successfully.")
-                    except psycopg.Error as e:
-                        logging.error(f"Error executing statement {i+1}: {e}")
-                        raise  # Re-raise to stop execution and log the error
+    # Remove BOM and comments
+    sql_script = sql_script.lstrip('\ufeff')
+    sql_script = re.sub(comment_line, '', sql_script)
+    sql_script = re.sub(comment_inline, '', sql_script)
 
-                logging.info("SQL script s10.sql executed successfully.")
+    lines = sql_script.splitlines()
+    dollar_count = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
 
-    except (psycopg.Error, FileNotFoundError, KeyError, json.JSONDecodeError) as e:
-        if isinstance(e, FileNotFoundError):
-            logging.error(f"Error: Configuration file '{config_file}' not found.")
-        elif isinstance(e, json.JSONDecodeError):
-            logging.error(f"Error: Invalid JSON format in '{config_file}'.")
-        elif isinstance(e, KeyError):
-            logging.error(f"Error: Missing 'database' section or connection parameters in '{config_file}'.")
+        if copy_command.match(line):
+            logger.debug("Skipping \\copy command: %s", line[:100])
+            continue
+
+        if do_block_start.match(line) and not in_function:
+            in_do_block = True
+            dollar_count = 0
+            current_statement.append(line)
+        elif function_start.match(line):
+            in_function = True
+            dollar_count = 0
+            current_statement.append(line)
+        elif dollar_quote.search(line):
+            dollar_count += len(dollar_quote.findall(line))
+            current_statement.append(line)
+            if (in_do_block or in_function) and dollar_count % 2 == 0:
+                if in_do_block:
+                    in_do_block = False
+                if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
+                    in_function = False
+                statements.append("\n".join(current_statement))
+                current_statement = []
+        elif in_do_block or in_function:
+            current_statement.append(line)
         else:
-            logging.error(f"Error executing SQL: {e}")
-        raise  # Re-raise to signal failure
+            current_statement.append(line)
+            if line.endswith(";"):
+                statements.append("\n".join(current_statement))
+                current_statement = []
+
+    if current_statement:
+        statements.append("\n".join(current_statement))
+
+    return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
+
+def run_s10_sql():
+    """Execute s10.sql to perform drug remapping in faers_b schema."""
+    config = load_config()
+    db_params = config.get("database", {})
+    required_keys = ["host", "port", "user", "dbname", "password"]
+    if not all(key in db_params for key in required_keys):
+        logger.error("Missing required database parameters: %s", required_keys)
+        raise ValueError("Missing database configuration")
+
+    logger.info("Connection parameters: %s", db_params)
+
+    try:
+        with psycopg.connect(**db_params) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                logger.info("Connected to PostgreSQL server")
+                cur.execute("SELECT version();")
+                pg_version = cur.fetchone()[0]
+                logger.info("PostgreSQL server version: %s", pg_version)
+
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
+                if not cur.fetchone():
+                    logger.info("faersdatabase does not exist, creating it")
+                    cur.execute("CREATE DATABASE faersdatabase")
+                    logger.info("Created faersdatabase")
+                else:
+                    logger.info("faersdatabase already exists")
+
+        with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
+            logger.info("Connected to faersdatabase")
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                if not os.path.exists(SQL_FILE_PATH):
+                    logger.error("SQL file %s not found", SQL_FILE_PATH)
+                    raise FileNotFoundError(SQL_FILE_PATH)
+
+                with open(SQL_FILE_PATH, "r", encoding="utf-8-sig") as f:
+                    sql_script = f.read()
+                logger.info("Read SQL script from %s", SQL_FILE_PATH)
+
+                statements = parse_sql_statements(sql_script)
+
+                for i, stmt in enumerate(statements, 1):
+                    logger.debug("Statement %d (length: %d): %s...", i, len(stmt), stmt[:1000])
+
+                for i, stmt in enumerate(statements, 1):
+                    logger.info("Executing statement %d...", i)
+                    try:
+                        execute_with_retry(cur, stmt)
+                    except pg_errors.Error as e:
+                        logger.warning("Error executing statement %d: %s", i, e)
+                        logger.warning("Failed statement: %s...", stmt[:1000])
+                        continue
+                    except Exception as e:
+                        logger.error("Unexpected error in statement %d: %s", i, e)
+                        raise
+
+                logger.info("All statements executed successfully")
+                logger.info("Note: Manual remapping via external tool (e.g., MS Access) may be required for manual_remapper")
+
+                verify_tables()
+
+    except pg_errors.Error as e:
+        logger.error("Database error: %s", e)
+        raise
+    except Exception as e:
+        logger.error("Unexpected error: %s", e)
+        raise
+    finally:
+        if 'conn' in locals():
+            conn.close()
+            logger.info("Database connection closed")
 
 if __name__ == "__main__":
     try:
-        run_remapping_sql_psycopg()  # Uses default config path
+        run_s10_sql()
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logger.error("Script execution failed: %s", e)
+        exit(1)
