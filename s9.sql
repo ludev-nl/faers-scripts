@@ -23,10 +23,51 @@ GRANT ALL ON SCHEMA faers_b TO postgres;
 -- Set search path
 SET search_path TO faers_b, faers_combined, public;
 
+-- Create placeholder IDD table if missing
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
+        AND relname = 'IDD'
+    ) THEN
+        CREATE TABLE faers_b."IDD" (
+            "DRUGNAME" TEXT,
+            "RXAUI" VARCHAR(8)
+        );
+        RAISE NOTICE 'Created placeholder faers_b.IDD table';
+    END IF;
+END $$;
+
+-- Add CLEANED_DRUGNAME and CLEANED_PROD_AI columns to DRUG_Mapper if missing
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT FROM pg_attribute 
+        WHERE attrelid = (SELECT oid FROM pg_class WHERE relname = 'DRUG_Mapper' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b'))
+        AND attname = 'CLEANED_DRUGNAME'
+        AND NOT attisdropped
+    ) THEN
+        ALTER TABLE faers_b."DRUG_Mapper" ADD COLUMN "CLEANED_DRUGNAME" TEXT;
+        RAISE NOTICE 'Added CLEANED_DRUGNAME column to faers_b.DRUG_Mapper';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT FROM pg_attribute 
+        WHERE attrelid = (SELECT oid FROM pg_class WHERE relname = 'DRUG_Mapper' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b'))
+        AND attname = 'CLEANED_PROD_AI'
+        AND NOT attisdropped
+    ) THEN
+        ALTER TABLE faers_b."DRUG_Mapper" ADD COLUMN "CLEANED_PROD_AI" TEXT;
+        RAISE NOTICE 'Added CLEANED_PROD_AI column to faers_b.DRUG_Mapper';
+    END IF;
+END $$;
+
 -- Check if DRUG_Mapper exists and has required columns
 DO $$
 DECLARE
     table_exists BOOLEAN;
+    row_count BIGINT;
     has_drugname BOOLEAN;
     has_prod_ai BOOLEAN;
     has_cleaned_drugname BOOLEAN;
@@ -49,6 +90,12 @@ BEGIN
     IF NOT table_exists THEN
         RAISE NOTICE 'Table faers_b.DRUG_Mapper does not exist, skipping updates';
         RETURN;
+    END IF;
+
+    -- Check row count
+    SELECT COUNT(*) INTO row_count FROM faers_b."DRUG_Mapper";
+    IF row_count = 0 THEN
+        RAISE NOTICE 'Table faers_b.DRUG_Mapper is empty, updates may have no effect';
     END IF;
 
     -- Check for required columns
@@ -139,6 +186,7 @@ END $$;
 DO $$
 DECLARE
     table_exists BOOLEAN;
+    row_count BIGINT;
     has_drugname BOOLEAN;
     has_prod_ai BOOLEAN;
     has_cleaned_drugname BOOLEAN;
@@ -153,6 +201,12 @@ BEGIN
     IF NOT table_exists THEN
         RAISE NOTICE 'Table faers_b.DRUG_Mapper_Temp does not exist, skipping updates from DRUG_Mapper_Temp';
         RETURN;
+    END IF;
+
+    -- Check row count
+    SELECT COUNT(*) INTO row_count FROM faers_b."DRUG_Mapper_Temp";
+    IF row_count = 0 THEN
+        RAISE NOTICE 'Table faers_b.DRUG_Mapper_Temp is empty, updates may have no effect';
     END IF;
 
     -- Check for required columns
@@ -207,6 +261,7 @@ AND faers_b."DRUG_Mapper"."NOTES" IS NULL;
 DO $$
 DECLARE
     table_exists BOOLEAN;
+    row_count BIGINT;
 BEGIN
     SELECT EXISTS (
         SELECT FROM pg_class 
@@ -218,14 +273,19 @@ BEGIN
         RAISE NOTICE 'Table faers_b.RXNCONSO does not exist, skipping RXNCONSO updates';
         RETURN;
     END IF;
+
+    SELECT COUNT(*) INTO row_count FROM faers_b."RXNCONSO";
+    IF row_count = 0 THEN
+        RAISE NOTICE 'Table faers_b.RXNCONSO is empty, RXNCONSO updates may have no effect';
+    END IF;
 END $$;
 
 -- Update DRUG_Mapper with RXNCONSO mappings
 -- 9.1: Match CLEANED_DRUGNAME with RXNORM (MIN, IN, PIN)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.1',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -240,8 +300,8 @@ AND rxn."TTY" IN ('MIN', 'IN', 'PIN');
 -- 9.2: Match CLEANED_PROD_AI with RXNORM (MIN, IN, PIN)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.2',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -253,28 +313,70 @@ AND faers_b."DRUG_Mapper"."NOTES" IS NULL
 AND rxn."SAB" = 'RXNORM'
 AND rxn."TTY" IN ('MIN', 'IN', 'PIN');
 
--- Check if IDD exists
-DO $$
-DECLARE
-    table_exists BOOLEAN;
-BEGIN
-    SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'IDD'
-    ) INTO table_exists;
+-- 9.5: Match CLEANED_DRUGNAME with RXNORM (IN)
+UPDATE faers_b."DRUG_Mapper"
+SET 
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
+    "NOTES" = '9.5',
+    "SAB" = rxn."SAB",
+    "TTY" = rxn."TTY",
+    "STR" = rxn."STR",
+    "CODE" = rxn."CODE"
+FROM faers_b."RXNCONSO" rxn
+WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_DRUGNAME"
+AND faers_b."DRUG_Mapper"."NOTES" IS NULL
+AND rxn."TTY" = 'IN';
 
-    IF NOT table_exists THEN
-        RAISE NOTICE 'Table faers_b.IDD does not exist, skipping IDD updates';
-        RETURN;
-    END IF;
-END $$;
+-- 9.6: Match CLEANED_PROD_AI with RXNORM (IN)
+UPDATE faers_b."DRUG_Mapper"
+SET 
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
+    "NOTES" = '9.6',
+    "SAB" = rxn."SAB",
+    "TTY" = rxn."TTY",
+    "STR" = rxn."STR",
+    "CODE" = rxn."CODE"
+FROM faers_b."RXNCONSO" rxn
+WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_PROD_AI"
+AND faers_b."DRUG_Mapper"."NOTES" IS NULL
+AND rxn."TTY" = 'IN';
 
+-- 9.9: Match CLEANED_DRUGNAME with RXNORM (any TTY)
+UPDATE faers_b."DRUG_Mapper"
+SET 
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
+    "NOTES" = '9.9',
+    "SAB" = rxn."SAB",
+    "TTY" = rxn."TTY",
+    "STR" = rxn."STR",
+    "CODE" = rxn."CODE"
+FROM faers_b."RXNCONSO" rxn
+WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_DRUGNAME"
+AND faers_b."DRUG_Mapper"."NOTES" IS NULL;
+
+-- 9.10: Match CLEANED_PROD_AI with RXNORM (any TTY)
+UPDATE faers_b."DRUG_Mapper"
+SET 
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
+    "NOTES" = '9.10',
+    "SAB" = rxn."SAB",
+    "TTY" = rxn."TTY",
+    "STR" = rxn."STR",
+    "CODE" = rxn."CODE"
+FROM faers_b."RXNCONSO" rxn
+WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_PROD_AI"
+AND faers_b."DRUG_Mapper"."NOTES" IS NULL;
+
+-- IDD Updates
 -- 9.3: Match CLEANED_DRUGNAME via IDD with RXNORM (MIN, IN, PIN)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.3',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -291,8 +393,8 @@ AND rxn."TTY" IN ('MIN', 'IN', 'PIN');
 -- 9.4: Match CLEANED_PROD_AI via IDD with RXNORM (MIN, IN, PIN)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.4',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -306,41 +408,11 @@ AND faers_b."DRUG_Mapper"."NOTES" IS NULL
 AND rxn."SAB" = 'RXNORM'
 AND rxn."TTY" IN ('MIN', 'IN', 'PIN');
 
--- 9.5: Match CLEANED_DRUGNAME with RXNORM (IN)
-UPDATE faers_b."DRUG_Mapper"
-SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
-    "NOTES" = '9.5',
-    "SAB" = rxn."SAB",
-    "TTY" = rxn."TTY",
-    "STR" = rxn."STR",
-    "CODE" = rxn."CODE"
-FROM faers_b."RXNCONSO" rxn
-WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_DRUGNAME"
-AND faers_b."DRUG_Mapper"."NOTES" IS NULL
-AND rxn."TTY" = 'IN';
-
--- 9.6: Match CLEANED_PROD_AI with RXNORM (IN)
-UPDATE faers_b."DRUG_Mapper"
-SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
-    "NOTES" = '9.6',
-    "SAB" = rxn."SAB",
-    "TTY" = rxn."TTY",
-    "STR" = rxn."STR",
-    "CODE" = rxn."CODE"
-FROM faers_b."RXNCONSO" rxn
-WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_PROD_AI"
-AND faers_b."DRUG_Mapper"."NOTES" IS NULL
-AND rxn."TTY" = 'IN';
-
 -- 9.7: Match CLEANED_DRUGNAME via IDD with RXNORM (IN)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.7',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -356,8 +428,8 @@ AND rxn."TTY" = 'IN';
 -- 9.8: Match CLEANED_PROD_AI via IDD with RXNORM (IN)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.8',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -370,39 +442,11 @@ WHERE idd."DRUGNAME" = faers_b."DRUG_Mapper"."CLEANED_PROD_AI"
 AND faers_b."DRUG_Mapper"."NOTES" IS NULL
 AND rxn."TTY" = 'IN';
 
--- 9.9: Match CLEANED_DRUGNAME with RXNORM (any TTY)
-UPDATE faers_b."DRUG_Mapper"
-SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
-    "NOTES" = '9.9',
-    "SAB" = rxn."SAB",
-    "TTY" = rxn."TTY",
-    "STR" = rxn."STR",
-    "CODE" = rxn."CODE"
-FROM faers_b."RXNCONSO" rxn
-WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_DRUGNAME"
-AND faers_b."DRUG_Mapper"."NOTES" IS NULL;
-
--- 9.10: Match CLEANED_PROD_AI with RXNORM (any TTY)
-UPDATE faers_b."DRUG_Mapper"
-SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
-    "NOTES" = '9.10',
-    "SAB" = rxn."SAB",
-    "TTY" = rxn."TTY",
-    "STR" = rxn."STR",
-    "CODE" = rxn."CODE"
-FROM faers_b."RXNCONSO" rxn
-WHERE rxn."STR" = faers_b."DRUG_Mapper"."CLEANED_PROD_AI"
-AND faers_b."DRUG_Mapper"."NOTES" IS NULL;
-
 -- 9.11: Match CLEANED_DRUGNAME via IDD with RXNORM (any TTY)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.11',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",
@@ -417,8 +461,8 @@ AND faers_b."DRUG_Mapper"."NOTES" IS NULL;
 -- 9.12: Match CLEANED_PROD_AI via IDD with RXNORM (any TTY)
 UPDATE faers_b."DRUG_Mapper"
 SET 
-    "RXAUI" = rxn."RXAUI",
-    "RXCUI" = rxn."RXCUI",
+    "RXAUI" = CAST(rxn."RXAUI" AS BIGINT),
+    "RXCUI" = CAST(rxn."RXCUI" AS BIGINT),
     "NOTES" = '9.12',
     "SAB" = rxn."SAB",
     "TTY" = rxn."TTY",

@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s9.sql"
-MAX_RETRIES = 1
-RETRY_DELAY = 1  # seconds
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -89,13 +89,14 @@ def verify_tables():
         logger.error(f"Error verifying tables: {e}")
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into individual statements, preserving DO blocks and function definitions."""
+    """Parse SQL script into individual statements, preserving DO blocks and separating UPDATEs."""
     statements = []
     current_statement = []
     in_do_block = False
     in_function = False
     do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
     function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
+    update_start = re.compile(r'^\s*UPDATE\s+', re.IGNORECASE)
     dollar_quote = re.compile(r'\$\$')
     comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
@@ -178,7 +179,7 @@ def run_s9_sql():
 
         with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
             logger.info("Connected to faersdatabase")
-            conn.autocommit = True  # Use autocommit to avoid transaction rollback
+            conn.autocommit = True  # Use autocommit to ensure each statement is committed
             with conn.cursor() as cur:
                 if not os.path.exists(SQL_FILE_PATH):
                     logger.error(f"SQL file {SQL_FILE_PATH} not found")

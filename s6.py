@@ -28,13 +28,13 @@ def load_config():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = json.load(f)
-        logger.info(f"Loaded configuration from {CONFIG_FILE}")
+        logger.info(f"Loaded configuration from %s", CONFIG_FILE)
         return config
     except FileNotFoundError:
-        logger.error(f"Config file {CONFIG_FILE} not found")
+        logger.error("Config file %s not found", CONFIG_FILE)
         raise
     except json.JSONDecodeError as e:
-        logger.error(f"Error decoding {CONFIG_FILE}: {e}")
+        logger.error("Error decoding %s: %s", CONFIG_FILE, e)
         raise
 
 def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
@@ -42,28 +42,31 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
     for attempt in range(1, retries + 1):
         try:
             cur.execute(statement)
-            logger.debug(f"Statement executed successfully on attempt {attempt}")
+            logger.debug("Statement executed successfully on attempt %d", attempt)
             return True
         except (pg_errors.OperationalError, pg_errors.DatabaseError) as e:
-            logger.warning(f"Attempt {attempt} failed: {e}")
+            logger.warning("Attempt %d failed: %s", attempt, e)
             if attempt < retries:
-                logger.info(f"Retrying in {delay} seconds...")
+                logger.info("Retrying in %d seconds...", delay)
                 time.sleep(delay)
             else:
-                logger.error(f"Failed after {retries} attempts: {e}")
+                logger.error("Failed after %d attempts: %s", retries, e)
                 raise
         except (pg_errors.DuplicateTable, pg_errors.DuplicateObject, pg_errors.DuplicateIndex) as e:
-            logger.info(f"Object already exists: {e}. Skipping.")
+            logger.info("Object already exists: %s. Skipping.", e)
             return True
         except pg_errors.Error as e:
-            logger.error(f"Database error: {e}")
+            logger.error("Database error: %s", e)
             raise
     return False
 
 def verify_tables():
-    """Verify that expected tables exist and log their row counts, warning if missing."""
+    """Verify that expected tables exist and log their row counts."""
     tables = [
-        "DRUG_RxNorm_Mapping"
+        "DRUG_Mapper",
+        "products_at_fda",
+        "IDD",
+        "manual_mapping"
     ]
     try:
         with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
@@ -80,20 +83,22 @@ def verify_tables():
                         cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
                         count = cur.fetchone()[0]
                         if count == 0:
-                            logger.warning(f"Table faers_b.\"{table}\" exists but is empty")
+                            logger.warning("Table faers_b.\"%s\" exists but is empty", table)
                         else:
-                            logger.info(f"Table faers_b.\"{table}\" exists with {count} rows")
+                            logger.info("Table faers_b.\"%s\" exists with %d rows", table, count)
                     except pg_errors.Error as e:
-                        logger.warning(f"Table faers_b.\"{table}\" does not exist or is inaccessible: {e}")
+                        logger.warning("Table faers_b.\"%s\" does not exist or is inaccessible: %s", table, e)
     except Exception as e:
-        logger.error(f"Error verifying tables: {e}")
+        logger.error("Error verifying tables: %s", e)
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into individual statements, preserving DO blocks."""
+    """Parse SQL script into individual statements, preserving DO blocks and functions."""
     statements = []
     current_statement = []
     in_do_block = False
+    in_function = False
     do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
+    function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
     dollar_quote = re.compile(r'\$\$')
     comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
@@ -112,21 +117,28 @@ def parse_sql_statements(sql_script):
             continue
 
         if copy_command.match(line):
-            logger.debug(f"Skipping \\copy command: {line[:100]}...")
+            logger.debug("Skipping \\copy command: %s", line[:100])
             continue
 
-        if do_block_start.match(line):
+        if do_block_start.match(line) and not in_function:
             in_do_block = True
+            dollar_count = 0
+            current_statement.append(line)
+        elif function_start.match(line):
+            in_function = True
             dollar_count = 0
             current_statement.append(line)
         elif dollar_quote.search(line):
             dollar_count += len(dollar_quote.findall(line))
             current_statement.append(line)
-            if in_do_block and dollar_count % 2 == 0:
+            if (in_do_block or in_function) and dollar_count % 2 == 0:
+                if in_do_block:
+                    in_do_block = False
+                if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
+                    in_function = False
                 statements.append("\n".join(current_statement))
                 current_statement = []
-                in_do_block = False
-        elif in_do_block:
+        elif in_do_block or in_function:
             current_statement.append(line)
         else:
             current_statement.append(line)
@@ -140,15 +152,15 @@ def parse_sql_statements(sql_script):
     return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 
 def run_s6_sql():
-    """Execute s6.sql to create DRUG_RxNorm_Mapping in faers_b schema."""
+    """Execute s6.sql to create and populate mapping tables in faers_b schema."""
     config = load_config()
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
     if not all(key in db_params for key in required_keys):
-        logger.error(f"Missing required database parameters: {required_keys}")
+        logger.error("Missing required database parameters: %s", required_keys)
         raise ValueError("Missing database configuration")
 
-    logger.info(f"Connection parameters: {db_params}")
+    logger.info("Connection parameters: %s", db_params)
 
     try:
         with psycopg.connect(**db_params) as conn:
@@ -157,7 +169,7 @@ def run_s6_sql():
                 logger.info("Connected to PostgreSQL server")
                 cur.execute("SELECT version();")
                 pg_version = cur.fetchone()[0]
-                logger.info(f"PostgreSQL server version: {pg_version}")
+                logger.info("PostgreSQL server version: %s", pg_version)
 
                 cur.execute("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
                 if not cur.fetchone():
@@ -169,42 +181,43 @@ def run_s6_sql():
 
         with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
             logger.info("Connected to faersdatabase")
-            conn.autocommit = True  # Use autocommit to avoid transaction rollback
+            conn.autocommit = True
             with conn.cursor() as cur:
                 if not os.path.exists(SQL_FILE_PATH):
-                    logger.error(f"SQL file {SQL_FILE_PATH} not found")
+                    logger.error("SQL file %s not found", SQL_FILE_PATH)
                     raise FileNotFoundError(SQL_FILE_PATH)
 
                 with open(SQL_FILE_PATH, "r", encoding="utf-8-sig") as f:
                     sql_script = f.read()
-                logger.info(f"Read SQL script from {SQL_FILE_PATH}")
+                logger.info("Read SQL script from %s", SQL_FILE_PATH)
 
                 statements = parse_sql_statements(sql_script)
 
                 for i, stmt in enumerate(statements, 1):
-                    logger.debug(f"Statement {i} (length: {len(stmt)}): {stmt[:1000]}...")
+                    logger.debug("Statement %d (length: %d): %s...", i, len(stmt), stmt[:1000])
 
                 for i, stmt in enumerate(statements, 1):
-                    logger.info(f"Executing statement {i}...")
+                    logger.info("Executing statement %d...", i)
                     try:
                         execute_with_retry(cur, stmt)
                     except pg_errors.Error as e:
-                        logger.warning(f"Error executing statement {i}: {e}")
-                        logger.warning(f"Failed statement: {stmt[:1000]}...")
+                        logger.warning("Error executing statement %d: %s", i, e)
+                        logger.warning("Failed statement: %s...", stmt[:1000])
                         continue
                     except Exception as e:
-                        logger.error(f"Unexpected error in statement {i}: {e}")
+                        logger.error("Unexpected error in statement %d: %s", i, e)
                         raise
 
                 logger.info("All statements executed successfully")
+                logger.info("Note: Data loading for products_at_fda and IDD must be done separately when files are available")
 
                 verify_tables()
 
     except pg_errors.Error as e:
-        logger.error(f"Database error: {e}")
+        logger.error("Database error: %s", e)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error("Unexpected error: %s", e)
         raise
     finally:
         if 'conn' in locals():
@@ -215,5 +228,5 @@ if __name__ == "__main__":
     try:
         run_s6_sql()
     except Exception as e:
-        logger.error(f"Script execution failed: {e}")
+        logger.error("Script execution failed: %s", e)
         exit(1)
