@@ -1340,4 +1340,13 @@ BEGIN
     INSERT INTO faers_b.remapping_log (step, message) VALUES ('Populate Manual Remapper', 'manual_remapper populated successfully');
 EXCEPTION
     WHEN OTHERS THEN
-        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Populate Manual Remapper', 'Error in Populate Manual Remapper:
+        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Populate Manual Remapper', 'Error in Populate Manual Remapper: ' || SQLERRM);
+        RAISE;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Statement 29: Merge manual remappings into drug_mapper_3
+CREATE OR REPLACE FUNCTION faers_b.merge_manual_remappings() RETURNS VOID AS $$
+DECLARE
+    table_exists BOOLEAN;
+    row
