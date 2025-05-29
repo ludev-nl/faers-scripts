@@ -42,6 +42,8 @@ CREATE TABLE faers_b."DRUG_Mapper" (
     "SAB" VARCHAR(20),
     "TTY" VARCHAR(20),
     "CODE" VARCHAR(50),
+    "CLEANED_DRUGNAME" TEXT,
+    "CLEANED_PROD_AI" TEXT,
     "remapping_NOTES" TEXT,
     "remapping_RXAUI" VARCHAR(8),
     "remapping_RXCUI" VARCHAR(8),
@@ -106,7 +108,7 @@ FROM faers_combined."DRUG_Combined"
 WHERE "primaryid" IN (SELECT "primaryid" FROM faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER")
 ON CONFLICT ON CONSTRAINT "DRUG_Mapper_pkey" DO NOTHING;
 
--- Create RxNorm tables
+-- Create RxNorm tables (unchanged from previous version)
 DROP TABLE IF EXISTS faers_b."RXNATOMARCHIVE";
 CREATE TABLE faers_b."RXNATOMARCHIVE" (
     "RXAUI" VARCHAR(8) NOT NULL,
