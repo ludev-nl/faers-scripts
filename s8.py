@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s8.sql"
-MAX_RETRIES = 1
-RETRY_DELAY = 1   # seconds
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -89,11 +89,13 @@ def verify_tables():
         logger.error(f"Error verifying tables: {e}")
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into individual statements, preserving DO blocks."""
+    """Parse SQL script into individual statements, preserving DO blocks and function definitions."""
     statements = []
     current_statement = []
     in_do_block = False
+    in_function = False
     do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
+    function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
     dollar_quote = re.compile(r'\$\$')
     comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
@@ -115,18 +117,25 @@ def parse_sql_statements(sql_script):
             logger.debug(f"Skipping \\copy command: {line[:100]}...")
             continue
 
-        if do_block_start.match(line):
+        if do_block_start.match(line) and not in_function:
             in_do_block = True
+            dollar_count = 0
+            current_statement.append(line)
+        elif function_start.match(line):
+            in_function = True
             dollar_count = 0
             current_statement.append(line)
         elif dollar_quote.search(line):
             dollar_count += len(dollar_quote.findall(line))
             current_statement.append(line)
-            if in_do_block and dollar_count % 2 == 0:
+            if (in_do_block or in_function) and dollar_count % 2 == 0:
+                if in_do_block:
+                    in_do_block = False
+                if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
+                    in_function = False
                 statements.append("\n".join(current_statement))
                 current_statement = []
-                in_do_block = False
-        elif in_do_block:
+        elif in_do_block or in_function:
             current_statement.append(line)
         else:
             current_statement.append(line)
