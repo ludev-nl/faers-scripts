@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s10.sql"
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
+MAX_RETRIES = 1
+RETRY_DELAY = 1  # seconds
 
 def load_config():
     """Load configuration from config.json."""
