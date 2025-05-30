@@ -13,15 +13,15 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("/home/xocas04/faers-scripts/s2_execution.log"),
+        logging.FileHandler("/home/levi-ari/Documents/faers-scripts/faers-scripts/s2_execution.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-CONFIG_FILE = "/home/xocas04/faers-scripts/config.json"
-SCHEMA_FILE = "/home/xocas04/faers-scripts/schema_config.json"
+CONFIG_FILE = "/home/levi-ari/Documents/faers-scripts/faers-scripts/config.json"
+SCHEMA_FILE = "/home/levi-ari/Documents/faers-scripts/faers-scripts/schema_config.json"
 
 def check_psycopg_version():
     """Check psycopg version."""
@@ -116,7 +116,7 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
     raise ValueError(f"No schema available for table {base_table_name} in period {target_date}")
 
 def create_table_if_not_exists(conn, table_name, schema):
-    """Create a table if it doesn’t exist."""
+    """Create a table if it does not exist."""
     try:
         with conn.cursor() as cur:
             schema_name = table_name.split('.')[0]
@@ -159,7 +159,15 @@ def import_data_file(conn, file_path, table_name, schema_name, year, quarter, sc
                 with open(file_path, "rb") as f:
                     copy_sql = f"""
                     COPY {table_name} ({', '.join(schema.keys())})
-                    FROM STDIN WITH (FORMAT csv, DELIMITER '$', HEADER true, NULL '', ENCODING 'UTF8')
+                    FROM STDIN WITH (
+                        FORMAT csv,
+                        DELIMITER '$',
+                        QUOTE E'\\b',  -- disables quoting
+                        ESCAPE E'\\b',  -- disables escaping
+                        HEADER true,
+                        NULL '',
+                        ENCODING 'UTF8'
+                    )
                     """
                     with cur.copy(copy_sql) as copy:
                         while True:
