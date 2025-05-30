@@ -1,3 +1,7 @@
+"""
+Pipeline wide: Provides a prompting helper function.
+"""
+
 def prompt(question):
     """
     Helper function to get user confirmation

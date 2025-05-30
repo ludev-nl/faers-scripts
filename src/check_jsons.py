@@ -1,12 +1,20 @@
+"""
+Part of script 1: Check if all configuration files
+are of a valid JSON format.
+"""
+
 import os
 import json
 
-def check_json_configs(rootdir):
-    config_dir = os.path.join(rootdir, 'config')
+from error import fatal_error, get_logger
+log = get_logger()
 
+def check_json_configs(config_dir):
+    """
+    Main function of this script.
+    """
     if not os.path.exists(config_dir) or not os.path.isdir(config_dir):
-        print(f"Error: 'config' directory not found in {rootdir}")
-        return 1
+        log.warning(f"Unable to find configuration directory in {config_dir}")
 
     # we already validate directories.json
     # in check_directories.
@@ -15,8 +23,6 @@ def check_json_configs(rootdir):
         if f.endswith('.json') and f != 'directories.json'
     ]
 
-    error_found = False
-
     for json_file in json_files:
         file_path = os.path.join(config_dir, json_file)
 
@@ -24,14 +30,8 @@ def check_json_configs(rootdir):
             with open(file_path, 'r') as f:
                 json.load(f)
         except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON format in {json_file}")
-            print(f"Error message: {e}")
-            error_found = True
+            raise(f"Invalid JSON format in {json_file}", e , 1)
 
-    if not error_found:
-        print("Configuration for the rest correctly initialised.")
-    else:
-        return 1
-    return 0
+    log.info("Configuration for the rest correctly initialised.")
 
 __all__ = ["check_json_configs"]
