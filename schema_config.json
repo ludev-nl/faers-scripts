@@ -248,6 +248,7 @@
         "date_range": ["2012Q4", "9999Q4"],
         "columns": {
           "primaryid": "bigint",
+          "caseid": "bigint",
           "dsg_drug_seq": "bigint",
           "start_dt": "bigint",
           "end_dt": "bigint",
@@ -258,7 +259,7 @@
     ],
     "RPSR": [
       {
-        "date_range": ["2004Q1", "9999Q4"],
+        "date_range": ["2004Q1", "2012Q2"],
         "columns": {
           "isr": "bigint",
           "rpsr_cod": "varchar(100)"
