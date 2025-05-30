@@ -1,4 +1,4 @@
--- s2-5.sql: Create combined tables in faers_combined schema, skipping if they exist
+-- s2-5.sql: Create and populate combined tables in faers_combined schema
 
 -- Set session parameters
 SET search_path TO faers_combined, faers_a, public;
@@ -9,7 +9,7 @@ SET client_min_messages TO NOTICE;
 -- Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS faers_combined;
 
--- Create DEMO_Combined
+-- Create tables
 CREATE TABLE IF NOT EXISTS faers_combined."DEMO_Combined" (
     "DEMO_ID" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     primaryid BIGINT,
@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS faers_combined."DEMO_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create DRUG_Combined
 CREATE TABLE IF NOT EXISTS faers_combined."DRUG_Combined" (
     "DRUG_ID" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     primaryid BIGINT,
@@ -66,7 +65,6 @@ CREATE TABLE IF NOT EXISTS faers_combined."DRUG_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create INDI_Combined
 CREATE TABLE IF NOT EXISTS faers_combined."INDI_Combined" (
     "INDI_ID" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     primaryid BIGINT,
@@ -76,7 +74,6 @@ CREATE TABLE IF NOT EXISTS faers_combined."INDI_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create THER_Combined
 CREATE TABLE IF NOT EXISTS faers_combined."THER_Combined" (
     "THER_ID" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     primaryid BIGINT,
@@ -89,7 +86,6 @@ CREATE TABLE IF NOT EXISTS faers_combined."THER_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create REAC_Combined
 CREATE TABLE IF NOT EXISTS faers_combined."REAC_Combined" (
     primaryid BIGINT,
     caseid BIGINT,
@@ -98,7 +94,6 @@ CREATE TABLE IF NOT EXISTS faers_combined."REAC_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create RPSR_Combined
 CREATE TABLE IF NOT EXISTS faers_combined."RPSR_Combined" (
     "RPSR_ID" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     primaryid BIGINT,
@@ -107,7 +102,6 @@ CREATE TABLE IF NOT EXISTS faers_combined."RPSR_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create OUTC_Combined
 CREATE TABLE IF NOT EXISTS faers_combined."OUTC_Combined" (
     "OUTC_ID" BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     primaryid BIGINT,
@@ -116,10 +110,132 @@ CREATE TABLE IF NOT EXISTS faers_combined."OUTC_Combined" (
     "PERIOD" VARCHAR(10)
 );
 
--- Create COMBINED_DELETED_CASES_REPORTS
 CREATE TABLE IF NOT EXISTS faers_combined."COMBINED_DELETED_CASES" (
     "Field1" TEXT
 );
+
+-- Populate combined tables using get_completed_year_quarters
+DO $$
+DECLARE
+    rec RECORD;
+    table_prefixes TEXT[] := ARRAY['demo', 'drug', 'indi', 'ther', 'reac', 'rpsr', 'outc'];
+    table_prefix TEXT;
+    table_name TEXT;
+    combined_table TEXT;
+    sql_text TEXT;
+BEGIN
+    FOR rec IN SELECT year, quarter FROM faers_a.get_completed_year_quarters(4)
+    LOOP
+        FOR table_prefix IN SELECT unnest(table_prefixes)
+        LOOP
+            table_name := format('faers_a.%s%02dq%d', table_prefix, rec.year % 100, rec.quarter);
+            combined_table := format('faers_combined."%s_Combined"', initcap(table_prefix));
+
+            -- Build INSERT statement dynamically
+            IF table_prefix = 'demo' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, caseversion, i_f_cod, event_dt, mfr_dt, init_fda_dt, fda_dt,
+                        rept_cod, auth_num, mfr_num, mfr_sndr, lit_ref, age, age_cod, age_grp, gndr_cod,
+                        e_sub, wt, wt_cod, rept_dt, to_mfr, occp_cod, reporter_country, occr_country, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, caseversion, i_f_cod, event_dt, mfr_dt, init_fda_dt, fda_dt,
+                        rept_cod, auth_num, mfr_num, mfr_sndr, lit_ref, age, age_cod, age_grp, gndr_cod,
+                        e_sub, wt, wt_cod, rept_dt, to_mfr, occp_cod, reporter_country, occr_country,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            ELSIF table_prefix = 'drug' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, drug_seq, role_cod, drugname, prod_ai, val_vbm, route, dose_vbm,
+                        cum_dose_chr, cum_dose_unit, dechal, rechal, lot_num, exp_dt, nda_num, dose_amt,
+                        dose_unit, dose_form, dose_freq, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, drug_seq, role_cod, drugname, prod_ai, val_vbm, route, dose_vbm,
+                        cum_dose_chr, cum_dose_unit, dechal, rechal, lot_num, exp_dt, nda_num, dose_amt,
+                        dose_unit, dose_form, dose_freq,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            ELSIF table_prefix = 'indi' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, indi_drug_seq, indi_pt, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, indi_drug_seq, indi_pt,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            ELSIF table_prefix = 'ther' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, dsg_drug_seq, start_dt, end_dt, dur, dur_cod, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, dsg_drug_seq, start_dt, end_dt, dur, dur_cod,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            ELSIF table_prefix = 'reac' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, pt, drug_rec_act, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, pt, drug_rec_act,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            ELSIF table_prefix = 'rpsr' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, rpsr_cod, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, rpsr_cod,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            ELSIF table_prefix = 'outc' THEN
+                sql_text := format('
+                    INSERT INTO %s (
+                        primaryid, caseid, outc_cod, "PERIOD"
+                    )
+                    SELECT
+                        primaryid, caseid, outc_cod,
+                        %L AS "PERIOD"
+                    FROM %s
+                ', combined_table, format('%sq%s', rec.year, rec.quarter), table_name);
+            END IF;
+
+            -- Execute the INSERT statement
+            BEGIN
+                EXECUTE sql_text;
+                RAISE NOTICE 'Inserted data into % from %', combined_table, table_name;
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING 'Error inserting data into % from %: %', combined_table, table_name, SQLERRM;
+            END;
+        END LOOP;
+
+        -- Handle COMBINED_DELETED_CASES
+        table_name := format('faers_a.dele%02dq%d', rec.year % 100, rec.quarter);
+        sql_text := format('
+            INSERT INTO faers_combined."COMBINED_DELETED_CASES" ("Field1")
+            SELECT "Field1"
+            FROM %s
+        ', table_name);
+        BEGIN
+            EXECUTE sql_text;
+            RAISE NOTICE 'Inserted data into faers_combined.COMBINED_DELETED_CASES from %', table_name;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'Error inserting data into faers_combined.COMBINED_DELETED_CASES from %: %', table_name, SQLERRM;
+        END;
+    END LOOP;
+END $$;
 
 -- Create indexes
 DO $$  

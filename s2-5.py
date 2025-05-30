@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s2-5.sql"
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
+MAX_RETRIES = 1
+RETRY_DELAY = 1  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -69,9 +69,13 @@ def verify_tables(cur, tables):
         try:
             cur.execute(f"SELECT COUNT(*) FROM faers_combined.\"{table}\"")
             count = cur.fetchone()[0]
-            logger.info(f"Table faers_combined.\"{table}\" exists with {count} rows")
+            if count == 0:
+                logger.warning(f"Table faers_combined.\"{table}\" is empty")
+            else:
+                logger.info(f"Table faers_combined.\"{table}\" exists with {count} rows")
         except pg_errors.Error as e:
             logger.error(f"Table faers_combined.\"{table}\" does not exist or is inaccessible: {e}")
+            raise
 
 def parse_sql_statements(sql_script):
     """Parse SQL script into valid statements, preserving DO blocks."""
@@ -111,7 +115,7 @@ def parse_sql_statements(sql_script):
     return [s.strip() for s in statements if s.strip()]
 
 def run_s2_5_sql():
-    """Execute s2-5.sql to create combined tables in faers_combined schema."""
+    """Execute s2-5.sql to create and populate combined tables in faers_combined schema."""
     config = load_config()
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
