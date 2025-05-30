@@ -1,0 +1,13 @@
+[sqlfluff]
+dialect = postgres  # Change to 'mysql', 'sqlite', etc.
+templater = jinja
+rules = L010,L016  # Enable only specific rules
+exclude_rules = L014  # Ignore a specific rule
+verbosity = 1  # Level of logging output
+
+[format]
+indent_unit = spaces
+indent_width = 4
+
+[lint]
+max_line_length = 80  # Enforce max line length

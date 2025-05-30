@@ -1,9 +1,23 @@
+"""
+Part of script 1: Check if data directories specified
+in the configuration exists, and if not, prompt
+to create them.
+"""
+
 import os
 import sys
 import json
-from .prompt import prompt
+
+from constants import OPTIONS_DIR
+from option import get_option_from_json
+from prompt import prompt
+from error import fatal_error, get_logger
+log = get_logger()
 
 def get_non_existent_dirs(root_dir, directories, root_data_dir):
+    """
+    Return a list of data directories not present.
+    """
     non_existent_dirs = []
     for dir_info in directories:
         dir_name = dir_info["name"]
@@ -27,8 +41,12 @@ def get_non_existent_dirs(root_dir, directories, root_data_dir):
     return non_existent_dirs
 
 def prompt_for_dir_creation(non_existent_dirs):
+    """
+    Ask the user if non-existent data directories should be created.
+    If the user answers no, we exit the program.
+    """
     if len(non_existent_dirs) == 0:
-        print("Directories correctly initialised.")
+        log.info("Directories correctly initialised.")
         return False
 
     print("These directories are specified in the configs, but do not exist:")
@@ -38,29 +56,53 @@ def prompt_for_dir_creation(non_existent_dirs):
     if prompt(f"Do you want to create them automatically?"):
        return True
 
-    print("No automatic folder creation requested.")
-    print("Exiting.")
+    log.info("No automatic folder creation requested.")
+    log.info("Exiting.")
     sys.exit(0)
     return False
 
 def create_directories(directories):
+    """
+    Given an array of directories, make them.
+    """
     for dir in directories:
         try:
             os.makedirs(dir)
-        except OSError as e:
-            print(f"Failed to create dir '{dir}': {e}")
+        except Exception as e:
+            raise fatal_error(f"Cannot make directory '{dir}'", e, 1)
 
 def check_if_directories_exist():
+    """
+    Main function of this file.
+    """
+    dir_config_location = get_option_from_json(
+        OPTIONS_DIR,
+        "location_data_directories"
+    )
+    config = {}
     try:
-        with open('config/directories.json') as f:
+        with open(dir_config_location) as f:
             config = json.load(f)
-    except json.JSONDecodeError as se:
-        print(f"Config file is of an invalid JSON format:\n{e}")
-    root_dir = config["root_data_dir"]
+    except json.JSONDecodeError as e:
+        log.warning("Directory config is of an invalid JSON format")
+        # Fallback: empty dictionary
+        config['data_directories'] = {}
+    except FileNotFoundError as e:
+        raise fatal_error(
+            f"There exists no JSON file at {dir_config_location}", e, 1)
+    except Exception as e:
+        raise fatal_error(
+            f"Failed to read JSON file", e, 1)
+
+    root_data_dir = get_option_from_json(
+        OPTIONS_DIR,
+        "root_data_dir"
+    )
+
     non_existent_dirs = get_non_existent_dirs(
-         root_dir,
+         root_data_dir,
          config['data_directories'],
-         root_dir)
+         root_data_dir)
     if prompt_for_dir_creation(non_existent_dirs):
         create_directories(non_existent_dirs)
 
