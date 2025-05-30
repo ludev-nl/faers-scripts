@@ -3,6 +3,7 @@
 *.pdf
 .venv
 faersData/
+data/
 
 # ======== Latex auxiliary files git ignore
 *.tar.gz
@@ -68,9 +69,6 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
-
-# pkgdown site
-docs/
 
 # translation temp files
 po/*~
