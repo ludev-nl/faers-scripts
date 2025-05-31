@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 CONFIG_FILE = "config.json"
+S8_CONFIG_FILE = "config_s8.json"  # NEW: S8 specific config
 SQL_FILE_PATH = "s8.sql"
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
@@ -35,6 +36,53 @@ def load_config():
         raise
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding {CONFIG_FILE}: {e}")
+        raise
+
+def load_s8_config():
+    """Load S8-specific configuration from config_s8.json."""
+    try:
+        with open(S8_CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        logger.info(f"Loaded S8 configuration from {S8_CONFIG_FILE}")
+        return config
+    except FileNotFoundError:
+        logger.warning(f"S8 config file {S8_CONFIG_FILE} not found - will use empty config")
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding {S8_CONFIG_FILE}: {e}")
+        raise
+
+def create_config_temp_table(cur, s8_config):
+    """Create temporary table with S8 configuration data."""
+    try:
+        # Drop and create temp table for config
+        cur.execute("DROP TABLE IF EXISTS temp_s8_config")
+        cur.execute("""
+            CREATE TEMP TABLE temp_s8_config (
+                phase_name TEXT PRIMARY KEY,
+                config_data JSONB
+            )
+        """)
+        
+        # Insert config data for each phase
+        phases_inserted = 0
+        for phase_name, phase_config in s8_config.items():
+            cur.execute("""
+                INSERT INTO temp_s8_config (phase_name, config_data) 
+                VALUES (%s, %s)
+            """, (phase_name, json.dumps(phase_config)))
+            phases_inserted += 1
+            
+        logger.info(f"Created temp config table with {phases_inserted} phases")
+        
+        # Log what phases we have
+        if phases_inserted > 0:
+            cur.execute("SELECT phase_name FROM temp_s8_config ORDER BY phase_name")
+            phase_names = [row[0] for row in cur.fetchall()]
+            logger.info(f"Available phases: {', '.join(phase_names)}")
+        
+    except Exception as e:
+        logger.error(f"Error creating config table: {e}")
         raise
 
 def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
@@ -151,6 +199,8 @@ def parse_sql_statements(sql_script):
 def run_s8_sql():
     """Execute s8.sql to create and clean DRUG_Mapper_Temp in faers_b schema."""
     config = load_config()
+    s8_config = load_s8_config()  # NEW: Load S8 config
+    
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
     if not all(key in db_params for key in required_keys):
@@ -178,8 +228,12 @@ def run_s8_sql():
 
         with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
             logger.info("Connected to faersdatabase")
-            conn.autocommit = True  # Use autocommit to avoid transaction rollback
+            conn.autocommit = True
             with conn.cursor() as cur:
+                
+                # NEW: Create config temp table FIRST
+                create_config_temp_table(cur, s8_config)
+                
                 if not os.path.exists(SQL_FILE_PATH):
                     logger.error(f"SQL file {SQL_FILE_PATH} not found")
                     raise FileNotFoundError(SQL_FILE_PATH)
@@ -206,7 +260,6 @@ def run_s8_sql():
                         raise
 
                 logger.info("All statements executed successfully")
-
                 verify_tables()
 
     except pg_errors.Error as e:

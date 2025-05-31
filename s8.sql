@@ -30,7 +30,7 @@ BEGIN
         DECLARE     
             phase_data JSONB;     
             stmt RECORD;     
-            phase_name TEXT;
+            current_phase TEXT;
         BEGIN  
             -- Step 0: Ensure CLEANED_* columns are initialized from DRUGNAME / PROD_AI if NULL
             UPDATE DRUG_Mapper
@@ -83,7 +83,6 @@ BEGIN
             SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, '\\s{2,}', ' ', 'g')
             WHERE NOTES IS NULL;
 
-
             -- Step 0.3: Strip parenthesis content iteratively
             FOR i IN 1..5 LOOP
                 UPDATE DRUG_Mapper
@@ -95,7 +94,6 @@ BEGIN
                 WHERE CLEANED_PROD_AI ~ '\\([^()]*\\)' AND NOTES IS NULL;
             END LOOP;
 
-
             -- Initial temp table     
             DROP TABLE IF EXISTS DRUG_Mapper_Temp;     
             CREATE TABLE DRUG_Mapper_Temp AS     
@@ -104,18 +102,23 @@ BEGIN
             WHERE NOTES IS NULL;      
 
             -- ── PHASE 1: UNITS_OF_MEASUREMENT_DRUGNAME ──
-            phase_name := 'UNITS_OF_MEASUREMENT_DRUGNAME';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'UNITS_OF_MEASUREMENT_DRUGNAME';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after UNITS_OF_MEASUREMENT_DRUGNAME
             UPDATE DRUG_Mapper_Temp 
@@ -125,62 +128,73 @@ BEGIN
             SET CLEANED_DRUGNAME = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_DRUGNAME, CHR(10), ''), CHR(13), ''), CHR(9), '')));
 
             -- ── PHASE 2: MANUFACTURER_NAMES_DRUGNAME ──
-            phase_name := 'UNITS_OF_MEASUREMENT_DRUGNAME';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'MANUFACTURER_NAMES_DRUGNAME';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after MANUFACTURER_NAMES_DRUGNAME
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_DRUGNAME = clearnumericcharacters(CLEANED_DRUGNAME);
 
             -- ── PHASE 3: WORDS_TO_VITAMIN_B_DRUGNAME ──
-            phase_name := 'WORDS_TO_VITAMIN_B_DRUGNAME';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'WORDS_TO_VITAMIN_B_DRUGNAME';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
             
-            -- No hard-coded operations after WORDS_TO_VITAMIN_B_DRUGNAME
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
 
             -- ── PHASE 4: FORMAT_DRUGNAME ──
-            phase_name := 'FORMAT_DRUGNAME';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'FORMAT_DRUGNAME';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after FORMAT_DRUGNAME
-            -- Trim special characters (this is fine and duplicated intentionally)
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_DRUGNAME = TRIM(BOTH ' ":.,?/\`~!@#$%^&*-_=+ ' FROM CLEANED_DRUGNAME);
             
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_DRUGNAME = TRIM(BOTH ' ":.,?/\`~!@#$%^&*-_=+ ' FROM CLEANED_DRUGNAME);
 
-            -- Whitespace and control character cleanup (corrected)
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_DRUGNAME = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_DRUGNAME, CHR(10), ' '), CHR(13), ' '), CHR(9), ' ')));
             
@@ -191,18 +205,23 @@ BEGIN
             SET CLEANED_DRUGNAME = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_DRUGNAME, CHR(10), ''), CHR(13), ''), CHR(9), '')));
 
             -- ── PHASE 5: CLEANING_DRUGNAME ──
-            phase_name := 'CLEANING_DRUGNAME';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'CLEANING_DRUGNAME';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after CLEANING_DRUGNAME (suffix removal for DRUGNAME)
             UPDATE DRUG_Mapper_Temp 
@@ -222,7 +241,7 @@ BEGIN
             OR RIGHT(CLEANED_DRUGNAME, 2) = '//'
             OR RIGHT(CLEANED_DRUGNAME, 1) = '/';
 
-            -- Initial PROD_AI whitespace cleanup (from original sequence)
+            -- Initial PROD_AI whitespace cleanup
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ''), CHR(13), ''), CHR(9), '')));
             
@@ -233,18 +252,23 @@ BEGIN
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ''), CHR(13), ''), CHR(9), '')));
 
             -- ── PHASE 6: UNITS_MEASUREMENT_PROD_AI ──
-            phase_name := 'UNITS_MEASUREMENT_PROD_AI';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'UNITS_MEASUREMENT_PROD_AI';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after UNITS_MEASUREMENT_PROD_AI
             UPDATE DRUG_Mapper_Temp 
@@ -254,59 +278,70 @@ BEGIN
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ''), CHR(13), ''), CHR(9), '')));
 
             -- ── PHASE 7: MANUFACTURER_NAMES_PROD_AI ──
-            phase_name := 'MANUFACTURER_NAMES_PROD_AI';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'MANUFACTURER_NAMES_PROD_AI';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after MANUFACTURER_NAMES_PROD_AI
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = clearnumericcharacters(CLEANED_PROD_AI);
 
             -- ── PHASE 8: WORDS_TO_VITAMIN_B_PROD_AI ──
-            phase_name := 'WORDS_TO_VITAMIN_B_PROD_AI';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'WORDS_TO_VITAMIN_B_PROD_AI';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
             
-            -- No hard-coded operations after WORDS_TO_VITAMIN_B_PROD_AI
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
 
             -- ── PHASE 9: FORMAT_PROD_AI ──
-            phase_name := 'FORMAT_PROD_AI';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'FORMAT_PROD_AI';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after FORMAT_PROD_AI
-            -- Trim special characters (no error here, both lines are valid and duplicate by design)
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = TRIM(BOTH ' ":.,?/\`~!@#$%^&*-_=+ ' FROM CLEANED_PROD_AI);
 
-            -- Corrected lines with properly matched parentheses
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ' '), CHR(13), ' '), CHR(9), ' ')));
 
@@ -316,7 +351,6 @@ BEGIN
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ' '), CHR(13), ' '), CHR(9), ' ')));
 
-            -- Repeat of trim special characters (also fine if intentional)
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = TRIM(BOTH ' ":.,?/\`~!@#$%^&*-_=+ ' FROM CLEANED_PROD_AI);
             
@@ -340,24 +374,29 @@ BEGIN
             SET CLEANED_PROD_AI = REPLACE(CLEANED_PROD_AI, '.', '');
 
             -- ── PHASE 10: CLEANING_PROD_AI ──
-            phase_name := 'CLEANING_PROD_AI';
-            phase_data := pg_read_file('config_s8.json')::jsonb;
-            FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> (phase_name)::text -> 'replacements') LOOP
-                EXECUTE format(
-                    'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
-                    stmt->>'table',
-                    stmt->>'set_column',
-                    stmt->>'replace_column',
-                    stmt->>'find',
-                    stmt->>'replace'
-                );
-            END LOOP;
+            current_phase := 'CLEANING_PROD_AI';
+            SELECT cfg.config_data INTO phase_data 
+            FROM temp_s8_config AS cfg
+            WHERE cfg.phase_name = current_phase;
+            
+            IF phase_data IS NOT NULL THEN
+                FOR stmt IN SELECT * FROM jsonb_array_elements(phase_data -> 'replacements') LOOP
+                    EXECUTE format(
+                        'UPDATE %I SET %I = REPLACE(%I, %L, %L)',
+                        stmt.value->>'table',
+                        stmt.value->>'set_column',
+                        stmt.value->>'replace_column',
+                        stmt.value->>'find',
+                        stmt.value->>'replace'
+                    );
+                END LOOP;
+            END IF;
             
             -- Hard-coded operations after CLEANING_PROD_AI
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ''), CHR(13), ''), CHR(9), '')));
             
-            -- Suffix removal for PROD_AI (includes JELL that DRUGNAME doesn't have)
+            -- Suffix removal for PROD_AI
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = CASE 
                 WHEN RIGHT(CLEANED_PROD_AI, 5) = ' JELL' THEN LEFT(CLEANED_PROD_AI, LENGTH(CLEANED_PROD_AI)-5)
@@ -375,7 +414,7 @@ BEGIN
             OR RIGHT(CLEANED_PROD_AI, 2) = '//'
             OR RIGHT(CLEANED_PROD_AI, 1) = '/';
 
-            -- Final PROD_AI whitespace cleanup (from original sequence)
+            -- Final PROD_AI whitespace cleanup
             UPDATE DRUG_Mapper_Temp 
             SET CLEANED_PROD_AI = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CLEANED_PROD_AI, CHR(10), ''), CHR(13), ''), CHR(9), '')));
             
