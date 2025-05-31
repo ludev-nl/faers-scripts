@@ -4,6 +4,9 @@ CREATE SCHEMA IF NOT EXISTS faers_b;
 -- Set the working schema
 SET search_path TO faers_b, public;
 
+ALTER TABLE DRUG_Mapper ADD COLUMN IF NOT EXISTS CLEANED_DRUGNAME TEXT;
+ALTER TABLE DRUG_Mapper ADD COLUMN IF NOT EXISTS CLEANED_PROD_AI TEXT;
+
 -- Only define and execute the functions if DRUG_Mapper table exists
 DO $$
 BEGIN
@@ -28,7 +31,71 @@ BEGIN
             phase_data JSONB;     
             stmt RECORD;     
             phase_name TEXT;
-        BEGIN    
+        BEGIN  
+            -- Step 0: Ensure CLEANED_* columns are initialized from DRUGNAME / PROD_AI if NULL
+            UPDATE DRUG_Mapper
+            SET CLEANED_DRUGNAME = DRUGNAME
+            WHERE CLEANED_DRUGNAME IS NULL AND DRUGNAME IS NOT NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_PROD_AI = PROD_AI
+            WHERE CLEANED_PROD_AI IS NULL AND PROD_AI IS NOT NULL;
+
+            -- Step 0.1: Remove numeric suffixes like /00032/
+            UPDATE DRUG_Mapper
+            SET CLEANED_DRUGNAME = regexp_replace(CLEANED_DRUGNAME, '/[0-9]{5}/', '', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, '/[0-9]{5}/', '', 'g')
+            WHERE NOTES IS NULL;
+
+            -- Step 0.2: Normalize common delimiters and whitespace
+            UPDATE DRUG_Mapper
+            SET CLEANED_DRUGNAME = regexp_replace(CLEANED_DRUGNAME, E'[\\n\\r\\t]+', '', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_DRUGNAME = regexp_replace(CLEANED_DRUGNAME, '[|,+;\\\\]', '/', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_DRUGNAME = regexp_replace(CLEANED_DRUGNAME, '/+', ' / ', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_DRUGNAME = regexp_replace(CLEANED_DRUGNAME, '\\s{2,}', ' ', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, E'[\\n\\r\\t]+', '', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, '[|,+;\\\\]', '/', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, '/+', ' / ', 'g')
+            WHERE NOTES IS NULL;
+
+            UPDATE DRUG_Mapper
+            SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, '\\s{2,}', ' ', 'g')
+            WHERE NOTES IS NULL;
+
+
+            -- Step 0.3: Strip parenthesis content iteratively
+            FOR i IN 1..5 LOOP
+                UPDATE DRUG_Mapper
+                SET CLEANED_DRUGNAME = regexp_replace(CLEANED_DRUGNAME, '\\([^()]*\\)', '', 'g')
+                WHERE CLEANED_DRUGNAME ~ '\\([^()]*\\)' AND NOTES IS NULL;
+
+                UPDATE DRUG_Mapper
+                SET CLEANED_PROD_AI = regexp_replace(CLEANED_PROD_AI, '\\([^()]*\\)', '', 'g')
+                WHERE CLEANED_PROD_AI ~ '\\([^()]*\\)' AND NOTES IS NULL;
+            END LOOP;
+
+
             -- Initial temp table     
             DROP TABLE IF EXISTS DRUG_Mapper_Temp;     
             CREATE TABLE DRUG_Mapper_Temp AS     
