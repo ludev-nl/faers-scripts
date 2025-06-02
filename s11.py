@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s11.sql"
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
+MAX_RETRIES = 1
+RETRY_DELAY = 1  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -102,19 +102,21 @@ def parse_sql_statements(sql_script):
     current_statement = []
     in_do_block = False
     in_function = False
+    block_level = 0
     do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
     function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
-    dollar_quote = re.compile(r'\$\$')
+    block_begin = re.compile(r'\bBEGIN\b', re.IGNORECASE)
+    block_end = re.compile(r'\bEND\b\s*(?:;|\$\$)', re.IGNORECASE)
     comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
     copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
 
+    # Clean script
     sql_script = sql_script.lstrip('\ufeff')
     sql_script = re.sub(comment_line, '', sql_script)
     sql_script = re.sub(comment_inline, '', sql_script)
 
     lines = sql_script.splitlines()
-    dollar_count = 0
     for line in lines:
         line = line.strip()
         if not line:
@@ -124,28 +126,29 @@ def parse_sql_statements(sql_script):
             logger.debug("Skipping \\copy command: %s", line[:100])
             continue
 
+        current_statement.append(line)
+
         if do_block_start.match(line) and not in_function:
             in_do_block = True
-            dollar_count = 0
-            current_statement.append(line)
+            block_level = 0
         elif function_start.match(line):
             in_function = True
-            dollar_count = 0
-            current_statement.append(line)
-        elif dollar_quote.search(line):
-            dollar_count += len(dollar_quote.findall(line))
-            current_statement.append(line)
-            if (in_do_block or in_function) and dollar_count % 2 == 0:
+            block_level = 0
+
+        if block_begin.search(line):
+            block_level += 1
+        if block_end.search(line):
+            block_level -= 1
+
+        if in_do_block or in_function:
+            if block_level == 0 and line.strip().endswith('$$'):
                 if in_do_block:
                     in_do_block = False
                 if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
                     in_function = False
                 statements.append("\n".join(current_statement))
                 current_statement = []
-        elif in_do_block or in_function:
-            current_statement.append(line)
         else:
-            current_statement.append(line)
             if line.endswith(";"):
                 statements.append("\n".join(current_statement))
                 current_statement = []
@@ -200,8 +203,6 @@ def run_s11_sql():
 
                 for i, stmt in enumerate(statements, 1):
                     logger.debug("Statement %d (length: %d): %s...", i, len(stmt), stmt[:1000])
-
-                for i, stmt in enumerate(statements, 1):
                     logger.info("Executing statement %d...", i)
                     try:
                         execute_with_retry(cur, stmt)

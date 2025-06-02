@@ -1,4 +1,6 @@
-﻿-- Verify database context
+﻿-- s11.sql: Create dataset tables for FAERS analysis in faers_b schema
+
+-- Verify database context
 DO $$
 BEGIN
     IF current_database() != 'faersdatabase' THEN
@@ -38,9 +40,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_3'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_3'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -50,9 +51,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -73,13 +73,13 @@ BEGIN
     );
 
     INSERT INTO faers_b.drugs_standardized
-    SELECT dm.primaryid, dm.drug_id, dm.drug_seq, dm.role_cod, dm.period, 
-           dm.final_rxaui AS rxaui, dm.remapping_str AS drug
+    SELECT dm.primaryid, CAST(dm.drug_id AS INTEGER), dm.drug_seq, dm.role_cod, dm.period, 
+           CAST(dm.remapping_rxaui AS BIGINT) AS rxaui, dm.remapping_str AS drug
     FROM faers_b.drug_mapper_3 dm
     INNER JOIN faers_combined.aligned_demo_drug_reac_indi_ther ad
         ON dm.primaryid = ad.primaryid
-    WHERE dm.final_rxaui IS NOT NULL
-      AND dm.final_rxaui != 9267486; -- Excludes 'UNKNOWN STR'
+    WHERE dm.remapping_rxaui IS NOT NULL
+      AND dm.remapping_rxaui != '92683486'; -- Excludes 'UNKNOWN STR'
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
     IF row_count = 0 THEN
@@ -90,13 +90,12 @@ BEGIN
         VALUES ('Create DRUGS_STANDARDIZED', 'Created faers_b.drugs_standardized with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_drugs_standardized_primaryid ON faers_b.drugs_standardized(primaryid);
-    CREATE INDEX idx_drugs_standardized_rxaui ON faers_b.drugs_standardized(rxaui);
+    CREATE INDEX IF NOT EXISTS idx_drugs_standardized_primaryid ON faers_b.drugs_standardized(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_drugs_standardized_rxaui ON faers_b.drugs_standardized(rxaui);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create DRUGS_STANDARDIZED', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create ADVERSE_REACTIONS
@@ -106,9 +105,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'reac_combined'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'reac_combined'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -118,9 +116,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -137,22 +134,22 @@ BEGIN
     );
 
     WITH cte AS (
-        SELECT rc.primaryid, rc.period, rc.meddra_code
+        SELECT rc.primaryid, rc.period, rc.pt AS meddra_code
         FROM faers_combined.reac_combined rc
         INNER JOIN faers_combined.aligned_demo_drug_reac_indi_ther ad
             ON rc.primaryid = ad.primaryid
     ),
     cte_2 AS (
-        SELECT pt_code AS code, pt_name AS adverse_event 
+        SELECT pt_name AS adverse_event 
         FROM faers_combined.pref_term
         UNION
-        SELECT llt_code, llt_name 
+        SELECT llt_name 
         FROM faers_combined.low_level_term
     )
     INSERT INTO faers_b.adverse_reactions
     SELECT cte.primaryid, cte.period, cte_2.adverse_event
     FROM cte
-    INNER JOIN cte_2 ON cte.meddra_code = cte_2.code;
+    INNER JOIN cte_2 ON cte.meddra_code = cte_2.adverse_event;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
     IF row_count = 0 THEN
@@ -163,12 +160,11 @@ BEGIN
         VALUES ('Create ADVERSE_REACTIONS', 'Created faers_b.adverse_reactions with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_adverse_reactions_primaryid ON faers_b.adverse_reactions(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_adverse_reactions_primaryid ON faers_b.adverse_reactions(primaryid);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create ADVERSE_REACTIONS', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create DRUG_ADVERSE_REACTIONS_Pairs
@@ -178,9 +174,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drugs_standardized'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drugs_standardized'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -190,9 +185,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'adverse_reactions'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'adverse_reactions'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -223,13 +217,12 @@ BEGIN
         VALUES ('Create DRUG_ADVERSE_REACTIONS_Pairs', 'Created faers_b.drug_adverse_reactions_pairs with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_drug_adverse_pairs_rxaui ON faers_b.drug_adverse_reactions_pairs(rxaui);
-    CREATE INDEX idx_drug_adverse_pairs_adverse_event ON faers_b.drug_adverse_reactions_pairs(adverse_event);
+    CREATE INDEX IF NOT EXISTS idx_drug_adverse_pairs_rxaui ON faers_b.drug_adverse_reactions_pairs(rxaui);
+    CREATE INDEX IF NOT EXISTS idx_drug_adverse_pairs_adverse_event ON faers_b.drug_adverse_reactions_pairs(adverse_event);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create DRUG_ADVERSE_REACTIONS_Pairs', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create DRUG_ADVERSE_REACTIONS_COUNT
@@ -239,9 +232,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_adverse_reactions_pairs'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_adverse_reactions_pairs'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -272,13 +264,12 @@ BEGIN
         VALUES ('Create DRUG_ADVERSE_REACTIONS_COUNT', 'Created faers_b.drug_adverse_reactions_count with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_drug_adverse_count_rxaui ON faers_b.drug_adverse_reactions_count(rxaui);
-    CREATE INDEX idx_drug_adverse_count_adverse_event ON faers_b.drug_adverse_reactions_count(adverse_event);
+    CREATE INDEX IF NOT EXISTS idx_drug_adverse_count_rxaui ON faers_b.drug_adverse_reactions_count(rxaui);
+    CREATE INDEX IF NOT EXISTS idx_drug_adverse_count_adverse_event ON faers_b.drug_adverse_reactions_count(adverse_event);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create DRUG_ADVERSE_REACTIONS_COUNT', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create DRUG_INDICATIONS
@@ -288,9 +279,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'indi_combined'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'indi_combined'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -300,9 +290,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -320,23 +309,23 @@ BEGIN
     );
 
     WITH cte AS (
-        SELECT ic.primaryid, ic.indi_drug_seq, ic.period, ic.meddra_code
+        SELECT ic.primaryid, ic.indi_drug_seq, ic.period, ic.indi_pt AS meddra_code
         FROM faers_combined.indi_combined ic
         INNER JOIN faers_combined.aligned_demo_drug_reac_indi_ther ad
             ON ic.primaryid = ad.primaryid
-        WHERE ic.meddra_code NOT IN (10070592, 10057097) -- Excludes specific codes (undocumented)
+        WHERE ic.indi_pt NOT IN ('10070592', '10057097') -- Excludes specific codes
     ),
     cte_2 AS (
-        SELECT pt_code AS code, pt_name AS drug_indication 
+        SELECT pt_name AS drug_indication 
         FROM faers_combined.pref_term
         UNION
-        SELECT llt_code, llt_name 
+        SELECT llt_name 
         FROM faers_combined.low_level_term
     )
     INSERT INTO faers_b.drug_indications
     SELECT cte.primaryid, cte.indi_drug_seq, cte.period, cte_2.drug_indication
     FROM cte
-    INNER JOIN cte_2 ON cte.meddra_code = cte_2.code;
+    INNER JOIN cte_2 ON cte.meddra_code = cte_2.drug_indication;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
     IF row_count = 0 THEN
@@ -347,12 +336,11 @@ BEGIN
         VALUES ('Create DRUG_INDICATIONS', 'Created faers_b.drug_indications with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_drug_indications_primaryid ON faers_b.drug_indications(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_drug_indications_primaryid ON faers_b.drug_indications(primaryid);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create DRUG_INDICATIONS', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create DEMOGRAPHICS
@@ -362,9 +350,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -388,8 +375,17 @@ BEGIN
     );
 
     INSERT INTO faers_b.demographics
-    SELECT caseid, primaryid, caseversion, fda_dt, i_f_cod, event_dt,
-           age_years_fixed AS age, gender, country_code, period
+    SELECT caseid, primaryid, caseversion, 
+           TO_DATE(NULLIF(fda_dt, ''), 'YYYYMMDD') AS fda_dt, 
+           i_f_cod, 
+           TO_DATE(NULLIF(event_dt, ''), 'YYYYMMDD') AS event_dt,
+           CASE 
+               WHEN age ~ '^[0-9]+$' THEN CAST(age AS FLOAT)
+               ELSE NULL
+           END AS age, 
+           gndr_cod AS gender, 
+           occr_country AS country_code, 
+           period
     FROM faers_combined.aligned_demo_drug_reac_indi_ther;
 
     GET DIAGNOSTICS row_count = ROW_COUNT;
@@ -401,12 +397,11 @@ BEGIN
         VALUES ('Create DEMOGRAPHICS', 'Created faers_b.demographics with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_demographics_primaryid ON faers_b.demographics(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_demographics_primaryid ON faers_b.demographics(primaryid);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create DEMOGRAPHICS', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create CASE_OUTCOMES
@@ -416,9 +411,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'outc_combined'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'outc_combined'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -428,9 +422,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -461,12 +454,11 @@ BEGIN
         VALUES ('Create CASE_OUTCOMES', 'Created faers_b.case_outcomes with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_case_outcomes_primaryid ON faers_b.case_outcomes(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_case_outcomes_primaryid ON faers_b.case_outcomes(primaryid);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create CASE_OUTCOMES', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create THERAPY_DATES
@@ -476,9 +468,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'ther_combined'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'ther_combined'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -488,9 +479,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -511,8 +501,12 @@ BEGIN
     );
 
     INSERT INTO faers_b.therapy_dates
-    SELECT tc.primaryid, tc.dsg_drug_seq, tc.start_dt, tc.end_dt, tc.dur,
-           NULLIF(tc.dur_cod, '') AS dur_cod, tc.period
+    SELECT tc.primaryid, tc.dsg_drug_seq, 
+           TO_DATE(NULLIF(tc.start_dt, ''), 'YYYYMMDD') AS start_dt, 
+           TO_DATE(NULLIF(tc.end_dt, ''), 'YYYYMMDD') AS end_dt, 
+           tc.dur,
+           NULLIF(tc.dur_cod, '') AS dur_cod, 
+           tc.period
     FROM faers_combined.ther_combined tc
     INNER JOIN faers_combined.aligned_demo_drug_reac_indi_ther ad
         ON tc.primaryid = ad.primaryid;
@@ -526,12 +520,11 @@ BEGIN
         VALUES ('Create THERAPY_DATES', 'Created faers_b.therapy_dates with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_therapy_dates_primaryid ON faers_b.therapy_dates(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_therapy_dates_primaryid ON faers_b.therapy_dates(primaryid);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create THERAPY_DATES', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create REPORT_SOURCES
@@ -541,9 +534,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'rpsr_combined'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'rpsr_combined'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -553,9 +545,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
-        AND relname = 'aligned_demo_drug_reac_indi_ther'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_combined' AND table_name = 'aligned_demo_drug_reac_indi_ther'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -586,12 +577,11 @@ BEGIN
         VALUES ('Create REPORT_SOURCES', 'Created faers_b.report_sources with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_report_sources_primaryid ON faers_b.report_sources(primaryid);
+    CREATE INDEX IF NOT EXISTS idx_report_sources_primaryid ON faers_b.report_sources(primaryid);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create REPORT_SOURCES', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create DRUG_MARGIN
@@ -601,9 +591,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_adverse_reactions_count'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_adverse_reactions_count'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -632,12 +621,11 @@ BEGIN
         VALUES ('Create DRUG_MARGIN', 'Created faers_b.drug_margin with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_drug_margin_rxaui ON faers_b.drug_margin(rxaui);
+    CREATE INDEX IF NOT EXISTS idx_drug_margin_rxaui ON faers_b.drug_margin(rxaui);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create DRUG_MARGIN', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create EVENT_MARGIN
@@ -647,9 +635,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_adverse_reactions_count'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_adverse_reactions_count'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -678,12 +665,11 @@ BEGIN
         VALUES ('Create EVENT_MARGIN', 'Created faers_b.event_margin with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_event_margin_adverse_event ON faers_b.event_margin(adverse_event);
+    CREATE INDEX IF NOT EXISTS idx_event_margin_adverse_event ON faers_b.event_margin(adverse_event);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create EVENT_MARGIN', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create TOTAL_COUNT
@@ -693,9 +679,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_adverse_reactions_count'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_adverse_reactions_count'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -725,7 +710,6 @@ EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create TOTAL_COUNT', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create CONTINGENCY_TABLE
@@ -735,9 +719,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_adverse_reactions_count'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_adverse_reactions_count'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -747,9 +730,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_margin'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_margin'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -759,9 +741,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'event_margin'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'event_margin'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -771,9 +752,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'total_count'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'total_count'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -813,13 +793,12 @@ BEGIN
         VALUES ('Create CONTINGENCY_TABLE', 'Created faers_b.contingency_table with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_contingency_table_rxaui ON faers_b.contingency_table(rxaui);
-    CREATE INDEX idx_contingency_table_adverse_event ON faers_b.contingency_table(adverse_event);
+    CREATE INDEX IF NOT EXISTS idx_contingency_table_rxaui ON faers_b.contingency_table(rxaui);
+    CREATE INDEX IF NOT EXISTS idx_contingency_table_adverse_event ON faers_b.contingency_table(adverse_event);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create CONTINGENCY_TABLE', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
 
 -- Create PROPORTIONATE_ANALYSIS
@@ -829,9 +808,8 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'contingency_table'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'contingency_table'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -864,23 +842,23 @@ BEGIN
     SELECT ct.rxaui, ct.drug, ct.adverse_event, ct.a,
            ((ct.a + ct.b) * (ct.a + ct.c)) / NULLIF((ct.a + ct.b + ct.c + ct.d), 0) AS n_expected,
            (ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0) AS prr,
-           exp(ln((ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)) 
-               - 1.96 * sqrt((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_lb,
-           exp(ln((ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)) 
-               + 1.96 * sqrt((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_ub,
+           EXP(LN((ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)) 
+               - 1.96 * SQRT((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_lb,
+           EXP(LN((ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)) 
+               + 1.96 * SQRT((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_ub,
            ROUND((ct.a + ct.b + ct.c + ct.d) * 
                  POWER(ABS((ct.a * ct.d) - (ct.b * ct.c)) - ((ct.a + ct.b + ct.c + ct.d) / 2.0), 2) / 
                  NULLIF(((ct.a + ct.c) * (ct.b + ct.d) * (ct.a + ct.b) * (ct.c + ct.d)), 0), 8) AS chi_squared_yates,
            ROUND(((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)), 8) AS ror,
-           exp(ln((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) 
-               - 1.96 * sqrt((1.0 / ct.a) + (1.0 / ct.b) + (1.0 / ct.c) + (1.0 / (ct.b + ct.d)))) AS ror_lb,
-           exp(ln((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) 
-               + 1.96 * sqrt((1.0 / ct.a) + (1.0 / ct.b) + (1.0 / ct.c) + (1.0 / (ct.b + ct.d)))) AS ror_ub,
-           log(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) AS ic,
-           log(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) 
-               - (3.3 * power((ct.a + 0.5), -0.5)) - (2.0 * power((ct.a + 0.5), -1.5)) AS ic025,
-           log(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) 
-               + (2.4 * power((ct.a + 0.5), -0.5)) - (0.5 * power((ct.a + 0.5), -1.5)) AS ic975
+           EXP(LN((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) 
+               - 1.96 * SQRT((1.0 / ct.a) + (1.0 / ct.b) + (1.0 / ct.c) + (1.0 / (ct.b + ct.d)))) AS ror_lb,
+           EXP(LN((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) 
+               + 1.96 * SQRT((1.0 / ct.a) + (1.0 / ct.b) + (1.0 / ct.c) + (1.0 / (ct.b + ct.d)))) AS ror_ub,
+           LOG(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) AS ic,
+           LOG(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) 
+               - (3.3 * POWER((ct.a + 0.5), -0.5)) - (2.0 * POWER((ct.a + 0.5), -1.5)) AS ic025,
+           LOG(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) 
+               + (2.4 * POWER((ct.a + 0.5), -0.5)) - (0.5 * POWER((ct.a + 0.5), -1.5)) AS ic975
     FROM faers_b.contingency_table ct
     WHERE ct.a > 0 AND ct.b > 0 AND ct.c > 0 AND ct.d > 0; -- Avoid division by zero
 
@@ -893,11 +871,10 @@ BEGIN
         VALUES ('Create PROPORTIONATE_ANALYSIS', 'Created faers_b.proportionate_analysis with ' || row_count || ' rows');
     END IF;
 
-    CREATE INDEX idx_proportionate_analysis_rxaui ON faers_b.proportionate_analysis(rxaui);
-    CREATE INDEX idx_proportionate_analysis_adverse_event ON faers_b.proportionate_analysis(adverse_event);
+    CREATE INDEX IF NOT EXISTS idx_proportionate_analysis_rxaui ON faers_b.proportionate_analysis(rxaui);
+    CREATE INDEX IF NOT EXISTS idx_proportionate_analysis_adverse_event ON faers_b.proportionate_analysis(adverse_event);
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO faers_b.remapping_log (step, message) 
         VALUES ('Create PROPORTIONATE_ANALYSIS', 'Error: ' || SQLERRM);
-        RAISE;
 END $$;
