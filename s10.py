@@ -6,18 +6,18 @@ import re
 import time
 from psycopg import errors as pg_errors
 
-# Logging Setup
+# --- Logging Setup ---
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("s10_execution.log", encoding='utf-8'),
+        logging.FileHandler("s10_execution.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
+# --- Configuration ---
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s10.sql"
 MAX_RETRIES = 1
@@ -28,13 +28,38 @@ def load_config():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = json.load(f)
-        logger.info("Loaded configuration from %s", CONFIG_FILE)
+        logger.info(f"Loaded configuration from {CONFIG_FILE}")
         return config
     except FileNotFoundError:
-        logger.error("Config file %s not found", CONFIG_FILE)
+        logger.error(f"Config file {CONFIG_FILE} not found")
         raise
     except json.JSONDecodeError as e:
-        logger.error("Error decoding %s: %s", CONFIG_FILE, e)
+        logger.error(f"Error decoding {CONFIG_FILE}: {e}")
+        raise
+
+def check_postgresql_version(cur):
+    """Check PostgreSQL server version."""
+    try:
+        cur.execute("SELECT version();")
+        version = cur.fetchone()[0]
+        logger.info(f"PostgreSQL server version: {version}")
+        return version
+    except pg_errors.Error as e:
+        logger.error(f"Error checking PostgreSQL version: {e}")
+        raise
+
+def check_database_exists(cur, dbname):
+    """Check if database exists."""
+    try:
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+        exists = cur.fetchone()
+        if exists:
+            logger.info(f"{dbname} already exists")
+            return True
+        logger.info(f"{dbname} does not exist")
+        return False
+    except pg_errors.Error as e:
+        logger.error(f"Error checking database existence: {e}")
         raise
 
 def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
@@ -42,183 +67,148 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
     for attempt in range(1, retries + 1):
         try:
             cur.execute(statement)
-            logger.debug("Statement executed successfully on attempt %d", attempt)
+            logger.debug(f"Statement executed successfully on attempt {attempt}")
             return True
         except (pg_errors.OperationalError, pg_errors.DatabaseError) as e:
-            logger.warning("Attempt %d failed: %s", attempt, e)
+            logger.warning(f"Attempt {attempt} failed: {e}")
             if attempt < retries:
-                logger.info("Retrying in %d seconds...", delay)
+                logger.info(f"Retrying in {delay} seconds...")
                 time.sleep(delay)
             else:
-                logger.error("Failed after %d attempts: %s", retries, e)
+                logger.error(f"Failed after {retries} attempts: {e}")
                 raise
-        except (pg_errors.DuplicateTable, pg_errors.DuplicateObject, pg_errors.DuplicateIndex) as e:
-            logger.info("Object already exists: %s. Skipping.", e)
+        except (pg_errors.DuplicateTable, pg_errors.DuplicateObject) as e:
+            logger.info(f"Object already exists: {e}. Skipping.")
             return True
         except pg_errors.Error as e:
-            logger.error("Database error: %s", e)
+            logger.error(f"Non-retryable database error: {e}")
             raise
     return False
 
-def verify_tables():
-    """Verify that expected tables exist and log their row counts."""
-    tables = [
-        "drug_mapper",
-        "drug_mapper_2",
-        "drug_mapper_3",
-        "manual_remapper",
-        "remapping_log"
-    ]
-    try:
-        with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
-            with conn.cursor() as cur:
-                # Verify schema
-                cur.execute("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
-                if not cur.fetchone():
-                    logger.warning("Schema faers_b does not exist, skipping table verification")
-                    return
-                logger.info("Schema faers_b exists")
-
-                for table in tables:
-                    try:
-                        cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
-                        count = cur.fetchone()[0]
-                        if count == 0:
-                            logger.warning("Table faers_b.\"%s\" exists but is empty", table)
-                        else:
-                            logger.info("Table faers_b.\"%s\" exists with %d rows", table, count)
-                    except pg_errors.Error as e:
-                        logger.warning("Table faers_b.\"%s\" does not exist or is inaccessible: %s", table, e)
-    except Exception as e:
-        logger.error("Error verifying tables: %s", e)
+def verify_tables(cur, schema, tables):
+    """Verify that all expected tables exist and log their row counts."""
+    for table in tables:
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM {schema}.\"{table}\"")
+            count = cur.fetchone()[0]
+            if count == 0:
+                logger.warning(f"Table {schema}.\"{table}\" is empty")
+            else:
+                logger.info(f"Table {schema}.\"{table}\" exists with {count} rows")
+        except pg_errors.Error as e:
+            logger.warning(f"Table {schema}.\"{table}\" does not exist or is inaccessible: {e}")
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into individual statements, preserving DO blocks and functions."""
+    """Parse SQL script into valid statements, preserving DO blocks."""
     statements = []
     current_statement = []
     in_do_block = False
-    in_function = False
     do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
-    function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
-    dollar_quote = re.compile(r'\$\$')
-    comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
-    comment_inline = re.compile(r'--.*$', re.MULTILINE)
-    copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
-
-    # Remove BOM and comments
-    sql_script = sql_script.lstrip('\ufeff')
-    sql_script = re.sub(comment_line, '', sql_script)
-    sql_script = re.sub(comment_inline, '', sql_script)
+    do_block_end = re.compile(r'^\s*\$\s*\$;?$', re.IGNORECASE)
 
     lines = sql_script.splitlines()
-    dollar_count = 0
     for line in lines:
         line = line.strip()
-        if not line:
+        if not line or re.match(r'^\s*--', line):
             continue
 
-        if copy_command.match(line):
-            logger.debug("Skipping \\copy command: %s", line[:100])
-            continue
-
-        if do_block_start.match(line) and not in_function:
+        if do_block_start.match(line):
             in_do_block = True
-            dollar_count = 0
             current_statement.append(line)
-        elif function_start.match(line):
-            in_function = True
-            dollar_count = 0
+        elif do_block_end.match(line) and in_do_block:
             current_statement.append(line)
-        elif dollar_quote.search(line):
-            dollar_count += len(dollar_quote.findall(line))
-            current_statement.append(line)
-            if (in_do_block or in_function) and dollar_count % 2 == 0:
-                if in_do_block:
-                    in_do_block = False
-                if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
-                    in_function = False
-                statements.append("\n".join(current_statement))
-                current_statement = []
-        elif in_do_block or in_function:
+            statements.append("\n".join(current_statement))
+            current_statement = []
+            in_do_block = False
+        elif in_do_block:
             current_statement.append(line)
         else:
-            current_statement.append(line)
             if line.endswith(";"):
+                current_statement.append(line[:-1])
                 statements.append("\n".join(current_statement))
                 current_statement = []
+            else:
+                current_statement.append(line)
 
     if current_statement:
         statements.append("\n".join(current_statement))
 
-    return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
+    return [s.strip() for s in statements if s.strip()]
 
 def run_s10_sql():
-    """Execute s10.sql to perform drug remapping in faers_b schema."""
+    """Execute s10.sql to create and populate tables in faers_b schema."""
     config = load_config()
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
     if not all(key in db_params for key in required_keys):
-        logger.error("Missing required database parameters: %s", required_keys)
+        logger.error(f"Missing required database parameters: {required_keys}")
         raise ValueError("Missing database configuration")
 
-    logger.info("Connection parameters: %s", db_params)
+    logger.info(f"Connection parameters: {db_params}")
+
+    tables = [
+        "drug_mapper", "drug_mapper_2", "drug_mapper_3", "manual_remapper", "remapping_log"
+    ]
 
     try:
+        # Connect to PostgreSQL server (default database)
+        with psycopg.connect(**{**db_params, "dbname": "postgres"}) as server_conn:
+            server_conn.autocommit = True
+            with server_conn.cursor() as server_cur:
+                check_postgresql_version(server_cur)
+                if not check_database_exists(server_cur, db_params["dbname"]):
+                    logger.error(f"Database {db_params['dbname']} does not exist")
+                    raise ValueError(f"Database {db_params['dbname']} does not exist")
+
+        # Connect to faersdatabase
         with psycopg.connect(**db_params) as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                logger.info("Connected to PostgreSQL server")
-                cur.execute("SELECT version();")
-                pg_version = cur.fetchone()[0]
-                logger.info("PostgreSQL server version: %s", pg_version)
-
-                cur.execute("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
-                if not cur.fetchone():
-                    logger.info("faersdatabase does not exist, creating it")
-                    cur.execute("CREATE DATABASE faersdatabase")
-                    logger.info("Created faersdatabase")
-                else:
-                    logger.info("faersdatabase already exists")
-
-        with psycopg.connect(**{**db_params, "dbname": "faersdatabase"}) as conn:
-            logger.info("Connected to faersdatabase")
-            conn.autocommit = True
+            logger.info(f"Connected to {db_params['dbname']}")
+            conn.autocommit = False
             with conn.cursor() as cur:
                 if not os.path.exists(SQL_FILE_PATH):
-                    logger.error("SQL file %s not found", SQL_FILE_PATH)
-                    raise FileNotFoundError(SQL_FILE_PATH)
+                    logger.error(f"SQL file {SQL_FILE_PATH} not found")
+                    raise FileNotFoundError(f"SQL file {SQL_FILE_PATH} not found")
 
-                with open(SQL_FILE_PATH, "r", encoding="utf-8-sig") as f:
+                with open(SQL_FILE_PATH, "r", encoding="utf-8") as f:
                     sql_script = f.read()
-                logger.info("Read SQL script from %s", SQL_FILE_PATH)
+                logger.info(f"Read SQL script from {SQL_FILE_PATH}")
 
                 statements = parse_sql_statements(sql_script)
 
                 for i, stmt in enumerate(statements, 1):
-                    logger.debug("Statement %d (length: %d): %s...", i, len(stmt), stmt[:1000])
-
-                for i, stmt in enumerate(statements, 1):
-                    logger.info("Executing statement %d...", i)
+                    logger.debug(f"Statement {i} (length: {len(stmt)}): {stmt[:1000]}...")
+                    logger.info(f"Executing statement {i}...")
                     try:
-                        execute_with_retry(cur, stmt)
+                        with conn.transaction():
+                            execute_with_retry(cur, stmt)
+                        conn.commit()  # Commit each statement
                     except pg_errors.Error as e:
-                        logger.warning("Error executing statement %d: %s", i, e)
-                        logger.warning("Failed statement: %s...", stmt[:1000])
+                        logger.warning(f"Error executing statement {i}: {e}")
+                        logger.warning(f"Failed statement: {stmt[:1000]}...")
+                        conn.rollback()  # Rollback only the failed statement
                         continue
                     except Exception as e:
-                        logger.error("Unexpected error in statement %d: %s", i, e)
+                        logger.error(f"Unexpected error in statement {i}: {e}")
+                        conn.rollback()
                         raise
 
                 logger.info("All statements executed successfully")
                 logger.info("Note: Manual remapping via external tool (e.g., MS Access) may be required for manual_remapper")
 
-                verify_tables()
+                # Verify schema and tables
+                cur.execute("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = 'faers_b')")
+                if not cur.fetchone()[0]:
+                    logger.error("Schema faers_b does not exist")
+                    raise ValueError("Schema faers_b does not exist")
+                logger.info("Schema faers_b exists")
 
-    except pg_errors.Error as e:
-        logger.error("Database error: %s", e)
+                verify_tables(cur, "faers_b", tables)
+
+    except psycopg.Error as e:
+        logger.error(f"Database error: {e}")
         raise
     except Exception as e:
-        logger.error("Unexpected error: %s", e)
+        logger.error(f"Unexpected error: {e}")
         raise
     finally:
         if 'conn' in locals():
@@ -229,5 +219,5 @@ if __name__ == "__main__":
     try:
         run_s10_sql()
     except Exception as e:
-        logger.error("Script execution failed: %s", e)
+        logger.error(f"Script execution failed: {e}")
         exit(1)
