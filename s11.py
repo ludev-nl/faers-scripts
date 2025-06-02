@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 CONFIG_FILE = "config.json"
 SQL_FILE_PATH = "s11.sql"
-MAX_RETRIES = 1
-RETRY_DELAY = 1  # seconds
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 def load_config():
     """Load configuration from config.json."""
@@ -100,13 +100,8 @@ def parse_sql_statements(sql_script):
     """Parse SQL script into individual statements, preserving DO blocks and functions."""
     statements = []
     current_statement = []
-    in_do_block = False
-    in_function = False
-    block_level = 0
-    do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
-    function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
-    block_begin = re.compile(r'\bBEGIN\b', re.IGNORECASE)
-    block_end = re.compile(r'\bEND\b\s*(?:;|\$\$)', re.IGNORECASE)
+    in_dollar_quoted = False
+    dollar_quote = re.compile(r'\$\$')
     comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
     copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
@@ -128,34 +123,22 @@ def parse_sql_statements(sql_script):
 
         current_statement.append(line)
 
-        if do_block_start.match(line) and not in_function:
-            in_do_block = True
-            block_level = 0
-        elif function_start.match(line):
-            in_function = True
-            block_level = 0
+        # Track dollar-quoted blocks
+        if dollar_quote.search(line):
+            if not in_dollar_quoted:
+                in_dollar_quoted = True
+            else:
+                in_dollar_quoted = False
 
-        if block_begin.search(line):
-            block_level += 1
-        if block_end.search(line):
-            block_level -= 1
+        # End of a statement
+        if not in_dollar_quoted and line.endswith(';'):
+            statements.append("\n".join(current_statement))
+            current_statement = []
 
-        if in_do_block or in_function:
-            if block_level == 0 and line.strip().endswith('$$'):
-                if in_do_block:
-                    in_do_block = False
-                if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
-                    in_function = False
-                statements.append("\n".join(current_statement))
-                current_statement = []
-        else:
-            if line.endswith(";"):
-                statements.append("\n".join(current_statement))
-                current_statement = []
-
+    # Handle any remaining statement
     if current_statement:
-        logger.warning("Incomplete statement detected: %s", "\n".join(current_statement)[:100])
         statements.append("\n".join(current_statement))
+        logger.warning("Incomplete statement detected: %s", "\n".join(current_statement)[:100])
 
     return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 

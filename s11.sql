@@ -846,10 +846,10 @@ BEGIN
                - 1.96 * SQRT((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_lb,
            EXP(LN((ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)) 
                + 1.96 * SQRT((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_ub,
-           ROUND((ct.a + ct.b + ct.c + ct.d) * 
+           ROUND(CAST((ct.a + ct.b + ct.c + ct.d) * 
                  POWER(ABS((ct.a * ct.d) - (ct.b * ct.c)) - ((ct.a + ct.b + ct.c + ct.d) / 2.0), 2) / 
-                 NULLIF(((ct.a + ct.c) * (ct.b + ct.d) * (ct.a + ct.b) * (ct.c + ct.d)), 0), 8) AS chi_squared_yates,
-           ROUND(((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)), 8) AS ror,
+                 NULLIF(((ct.a + ct.c) * (ct.b + ct.d) * (ct.a + ct.b) * (ct.c + ct.d)), 0) AS NUMERIC), 8) AS chi_squared_yates,
+           ROUND(CAST(((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) AS NUMERIC), 8) AS ror,
            EXP(LN((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) 
                - 1.96 * SQRT((1.0 / ct.a) + (1.0 / ct.b) + (1.0 / ct.c) + (1.0 / (ct.b + ct.d)))) AS ror_lb,
            EXP(LN((ct.a / NULLIF(ct.c, 0)) / NULLIF((ct.b / NULLIF(ct.d, 0)), 0)) 
