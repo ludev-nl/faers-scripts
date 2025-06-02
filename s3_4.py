@@ -60,7 +60,7 @@ try:
             logging.error(f"Error executing s3.sql: {result3.stderr}")
             exit(1)
 
-        psql_cmd[-1] = 's4test.sql'
+        psql_cmd[-1] = 's4.sql'
         print(psql_cmd)
         time.sleep(1)
         logging.info("Loading script 4 sql")

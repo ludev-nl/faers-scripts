@@ -128,7 +128,7 @@ BEGIN
     LOOP
         FOR table_prefix IN SELECT unnest(table_prefixes)
         LOOP
-            table_name := format('faers_a.%s%02dq%d', table_prefix, rec.year % 100, rec.quarter);
+            table_name := format('faers_a.%s%02dq%s', table_prefix, rec.year % 100, rec.quarter);
             combined_table := format('faers_combined."%s_Combined"', initcap(table_prefix));
 
             -- Build INSERT statement dynamically
@@ -222,7 +222,7 @@ BEGIN
         END LOOP;
 
         -- Handle COMBINED_DELETED_CASES
-        table_name := format('faers_a.dele%02dq%d', rec.year % 100, rec.quarter);
+        table_name := format('faers_a.dele%02dq%s', rec.year % 100, rec.quarter);
         sql_text := format('
             INSERT INTO faers_combined."COMBINED_DELETED_CASES" ("Field1")
             SELECT "Field1"
