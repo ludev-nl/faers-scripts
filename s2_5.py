@@ -11,7 +11,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("s2-5_execution.log"),
+        logging.FileHandler("s2_5_execution.log"),
         logging.StreamHandler()
     ]
 )
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 CONFIG_FILE = "config.json"
-SQL_FILE_PATH = "s2-5.sql"
+SQL_FILE_PATH = "s2_5.sql"
 MAX_RETRIES = 1
 RETRY_DELAY = 1  # seconds
 
