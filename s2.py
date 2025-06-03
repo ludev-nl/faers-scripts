@@ -88,23 +88,32 @@ def download_gcs_file(bucket_name, file_name, local_path):
 
 def get_schema_for_period(schema_config, table_name, year, quarter):
     """Get schema for a table and period."""
-    table_schemas = schema_config.get(table_name.upper())
+    # Normalize table name to base type (e.g., DEMO13Q1 -> DEMO)
+    base_table_name = ''.join([c for c in table_name.upper() if not c.isdigit() and c != 'Q'])
+    table_schemas = schema_config.get(base_table_name)
+
     if not table_schemas:
-        raise ValueError(f"No schema found for table {table_name}")
+        raise ValueError(f"No schema found for table {base_table_name}")
 
     target_date = f"{year}Q{quarter}"
+    logger.debug(f"Looking up schema for {base_table_name} in period {target_date}")
+
     for schema_info in table_schemas:
         start_date, end_date = schema_info["date_range"]
         start_year, start_quarter = int(start_date[:4]), int(start_date[5])
         end_year = 9999 if end_date == "9999Q4" else int(end_date[:4])
         end_quarter = 4 if end_date == "9999Q4" else int(end_date[5])
 
+        logger.debug(f"Checking schema range {start_date} to {end_date}")
+
         if (start_year <= year <= end_year) and \
            (start_year < year or start_quarter <= quarter) and \
            (year < end_year or quarter <= end_quarter):
-            return schema_info["columns"]
+            columns = schema_info["columns"]
+            logger.debug(f"Matched schema for {target_date}: {len(columns)} columns")
+            return columns
 
-    raise ValueError(f"No schema available for table {table_name} in period {target_date}")
+    raise ValueError(f"No schema available for table {base_table_name} in period {target_date}")
 
 def create_table_if_not_exists(conn, table_name, schema):
     """Create a table if it does not exist."""
