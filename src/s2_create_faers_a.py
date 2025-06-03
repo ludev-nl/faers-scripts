@@ -7,6 +7,7 @@ from google.cloud import storage
 import tempfile
 import time
 import sys
+from constants import CONFIG_DIR
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -20,8 +21,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-CONFIG_FILE = "config/config.json"
-SCHEMA_FILE = "config/schema_config.json"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
 
 def check_psycopg_version():
     """Check psycopg version."""
