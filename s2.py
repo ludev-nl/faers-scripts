@@ -4,9 +4,8 @@ import os
 import psycopg
 import re
 from google.cloud import storage
-import tempfile
-import time
 import sys
+import time
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -22,10 +21,11 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 CONFIG_FILE = "config.json"
 SCHEMA_FILE = "schema_config.json"
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 def check_psycopg_version():
     """Check psycopg version."""
-    import psycopg
     version = psycopg.__version__
     logger.info(f"Using psycopg version: {version}")
     if not version.startswith("3."):
@@ -60,19 +60,6 @@ def load_schema_config():
         logger.error(f"Error decoding {SCHEMA_FILE}: {e}")
         raise
 
-def check_file_exists(bucket_name, file_name):
-    """Check if a file exists in GCS."""
-    try:
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(file_name)
-        exists = blob.exists()
-        logger.info(f"File {file_name} exists: {exists}")
-        return exists
-    except Exception as e:
-        logger.error(f"Error checking file existence: {e}")
-        return False
-
 def download_gcs_file(bucket_name, file_name, local_path):
     """Download a file from GCS."""
     try:
@@ -85,6 +72,17 @@ def download_gcs_file(bucket_name, file_name, local_path):
     except Exception as e:
         logger.error(f"Error downloading {file_name}: {e}")
         return False
+
+def list_files_in_gcs_directory(bucket_name, directory_path):
+    """List .txt files in GCS directory."""
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=directory_path)
+        return [blob.name for blob in blobs if blob.name.lower().endswith(".txt")]
+    except Exception as e:
+        logger.error(f"Error listing GCS files: {e}")
+        return []
 
 def get_schema_for_period(schema_config, table_name, year, quarter):
     """Get schema for a table and period."""
@@ -106,81 +104,8 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
 
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
 
-def create_table_if_not_exists(conn, table_name, schema):
-    """Create a table if it doesn’t exist."""
-    try:
-        with conn.cursor() as cur:
-            schema_name = table_name.split('.')[0]
-            cur.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
-            columns_def = ", ".join([f"{col_name} {data_type}" for col_name, data_type in schema.items()])
-            cur.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_def})")
-        conn.commit()
-        logger.info(f"Table {table_name} created or already exists")
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Error creating table {table_name}: {e}")
-        raise
-
-def validate_data_file(file_path, schema):
-    """Validate data file against schema."""
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            header = f.readline().strip().split('$')
-            expected_columns = len(schema)
-            if len(header) != expected_columns:
-                logger.error(f"Header in {file_path} has {len(header)} columns, expected {expected_columns}")
-                return False
-            return True
-    except Exception as e:
-        logger.error(f"Error validating {file_path}: {e}")
-        return False
-
-def import_data_file(conn, file_path, table_name, schema_name, year, quarter, schema_config, max_retries=3):
-    """Import data file into a table."""
-    for attempt in range(max_retries):
-        try:
-            schema = get_schema_for_period(schema_config, schema_name, year, quarter)
-            create_table_if_not_exists(conn, table_name, schema)
-
-            if not validate_data_file(file_path, schema):
-                logger.error(f"Validation failed for {file_path}")
-                return
-
-            with conn.cursor() as cur:
-                with open(file_path, "rb") as f:
-                    copy_sql = f"""
-                    COPY {table_name} ({', '.join(schema.keys())})
-                    FROM STDIN WITH (FORMAT csv, DELIMITER '$', HEADER true, NULL '', ENCODING 'UTF8')
-                    """
-                    with cur.copy(copy_sql) as copy:
-                        while True:
-                            chunk = f.read(8192)
-                            if not chunk:
-                                break
-                            copy.write(chunk)
-            conn.commit()
-            logger.info(f"Imported {file_path} into {table_name}")
-            return
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Attempt {attempt + 1}/{max_retries} failed for {file_path}: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5)
-    logger.error(f"Failed to import {file_path} after {max_retries} attempts")
-
-def list_files_in_gcs_directory(bucket_name, directory_path):
-    """List .txt files in GCS directory."""
-    try:
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
-        blobs = bucket.list_blobs(prefix=directory_path)
-        return [blob.name for blob in blobs if blob.name.lower().endswith(".txt")]
-    except Exception as e:
-        logger.error(f"Error listing GCS files: {e}")
-        return []
-
 def main():
-    """Main function to load FAERS data."""
+    """Main function to orchestrate FAERS data loading."""
     check_psycopg_version()
     config = load_config()
     schema_config = load_schema_config()
@@ -208,12 +133,40 @@ def main():
                 schema_name = match.group(1).upper()
                 year = 2000 + int(match.group(2))
                 quarter = int(match.group(3))
-                table_name = f"faers_a.{schema_name.lower()}{year % 100:02d}q{quarter}"
-
                 local_path = os.path.join(local_dir, os.path.basename(gcs_file_path))
+
+                # Get schema for the period
+                try:
+                    columns = get_schema_for_period(schema_config, schema_name, year, quarter)
+                except ValueError as e:
+                    logger.error(f"Schema error for {gcs_file_path}: {e}")
+                    continue
+
                 if download_gcs_file(bucket_name, gcs_file_path, local_path):
-                    import_data_file(conn, local_path, table_name, schema_name, year, quarter, schema_config)
+                    for attempt in range(MAX_RETRIES):
+                        try:
+                            with conn.cursor() as cur:
+                                # Pass columns as JSONB
+                                cur.execute(
+                                    "CALL faers_a.process_faers_file(%s, %s, %s, %s, %s::jsonb)",
+                                    (local_path, schema_name, year, quarter, json.dumps(columns))
+                                )
+                            conn.commit()
+                            logger.info(f"Processed {gcs_file_path} via SQL procedure")
+                            break
+                        except psycopg.Error as e:
+                            conn.rollback()
+                            logger.error(f"Attempt {attempt + 1}/{MAX_RETRIES} failed for {gcs_file_path}: {e}")
+                            if attempt < MAX_RETRIES - 1:
+                                time.sleep(RETRY_DELAY)
+                            else:
+                                logger.error(f"Failed to process {gcs_file_path} after {MAX_RETRIES} attempts")
+                        except Exception as e:
+                            conn.rollback()
+                            logger.error(f"Unexpected error for {gcs_file_path}: {e}")
+                            break
                     os.remove(local_path)
+                    logger.info(f"Removed local file {local_path}")
 
     except psycopg.Error as e:
         logger.error(f"Database error: {e}")

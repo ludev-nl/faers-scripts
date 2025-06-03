@@ -1,3 +1,5 @@
+-- s10.sql: Create and set up remapping tables in faers_b schema
+
 -- Statement 1: Verify database context
 DO $$
 BEGIN
@@ -31,7 +33,95 @@ CREATE TABLE IF NOT EXISTS faers_b.remapping_log (
     log_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Statement 7: Create indexes for performance
+-- Statement 7: Create drug_mapper table
+CREATE TABLE IF NOT EXISTS faers_b.drug_mapper (
+    drug_id TEXT,
+    primaryid TEXT,
+    drug_seq TEXT,
+    role_cod TEXT,
+    period TEXT,
+    drugname TEXT,
+    prod_ai TEXT,
+    notes TEXT,
+    rxaui VARCHAR(8),
+    rxcui VARCHAR(8),
+    str TEXT,
+    sab VARCHAR(20),
+    tty VARCHAR(20),
+    code VARCHAR(50),
+    remapping_rxaui VARCHAR(8),
+    remapping_rxcui VARCHAR(8),
+    remapping_str TEXT,
+    remapping_sab VARCHAR(20),
+    remapping_tty VARCHAR(20),
+    remapping_code VARCHAR(50),
+    remapping_notes TEXT
+);
+
+-- Statement 8: Create drug_mapper_2 table
+CREATE TABLE IF NOT EXISTS faers_b.drug_mapper_2 (
+    drug_id TEXT,
+    primaryid TEXT,
+    drug_seq TEXT,
+    role_cod TEXT,
+    period TEXT,
+    drugname TEXT,
+    prod_ai TEXT,
+    notes TEXT,
+    rxaui VARCHAR(8),
+    rxcui VARCHAR(8),
+    str TEXT,
+    sab VARCHAR(20),
+    tty VARCHAR(20),
+    code VARCHAR(50),
+    remapping_notes TEXT,
+    rela TEXT,
+    remapping_rxaui VARCHAR(8),
+    remapping_rxcui VARCHAR(8),
+    remapping_str TEXT,
+    remapping_sab VARCHAR(20),
+    remapping_tty VARCHAR(20),
+    remapping_code VARCHAR(50)
+);
+
+-- Statement 9: Create drug_mapper_3 table
+CREATE TABLE IF NOT EXISTS faers_b.drug_mapper_3 (
+    drug_id TEXT,
+    primaryid TEXT,
+    drug_seq TEXT,
+    role_cod TEXT,
+    period TEXT,
+    drugname TEXT,
+    prod_ai TEXT,
+    notes TEXT,
+    rxaui VARCHAR(8),
+    rxcui VARCHAR(8),
+    str TEXT,
+    sab VARCHAR(20),
+    tty VARCHAR(20),
+    code VARCHAR(50),
+    remapping_rxaui VARCHAR(8),
+    remapping_rxcui VARCHAR(8),
+    remapping_str TEXT,
+    remapping_sab VARCHAR(20),
+    remapping_tty VARCHAR(20),
+    remapping_code VARCHAR(50),
+    remapping_notes TEXT
+);
+
+-- Statement 10: Create manual_remapper table
+CREATE TABLE IF NOT EXISTS faers_b.manual_remapper (
+    count INTEGER,
+    source_drugname VARCHAR(3000),
+    source_rxaui VARCHAR(8),
+    source_rxcui VARCHAR(8),
+    source_sab VARCHAR(20),
+    source_tty VARCHAR(20),
+    final_rxaui BIGINT,
+    notes VARCHAR(100)
+);
+
+-- Statement 11: Create indexes for performance
 DO $$
 BEGIN
     IF EXISTS (
@@ -70,16 +160,15 @@ BEGIN
     END IF;
 END $$;
 
--- Statement 8: Step 1 - Initial RXNORM Update
+-- Statement 12: Step 1 - Initial RXNORM Update
 CREATE OR REPLACE FUNCTION faers_b.step_1_initial_rxnorm_update() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -94,16 +183,18 @@ BEGIN
     END IF;
 
     UPDATE faers_b.drug_mapper
-    SET remapping_rxcui = rxcui::VARCHAR(8),
-        remapping_rxaui = rxaui::VARCHAR(8),
+    SET remapping_rxcui = rxcui,
+        remapping_rxaui = rxaui,
         remapping_str = str,
         remapping_sab = sab,
         remapping_tty = tty,
         remapping_code = code,
         remapping_notes = '1'
-    WHERE sab = 'RXNORM'
-      AND tty = 'IN'
-      AND remapping_notes IS NULL;
+    FROM faers_b.rxnconso
+    WHERE faers_b.drug_mapper.rxcui = faers_b.rxnconso.rxcui
+      AND faers_b.rxnconso.sab = 'RXNORM'
+      AND faers_b.rxnconso.tty = 'IN'
+      AND faers_b.drug_mapper.remapping_notes IS NULL;
 
     INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 1', 'Initial RXNORM update completed successfully');
 EXCEPTION
@@ -113,16 +204,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 9: Step 2 - Create drug_mapper_2
+-- Statement 13: Step 2 - Create drug_mapper_2
 CREATE OR REPLACE FUNCTION faers_b.step_2_create_drug_mapper_2() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -136,53 +226,29 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 2', 'Table faers_b.rxnconso does not exist, skipping Step 2');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 2', 'Table faers_b.rxnrel does not exist, skipping Step 2');
         RETURN;
     END IF;
 
-    DROP TABLE IF EXISTS faers_b.drug_mapper_2;
-    CREATE TABLE faers_b.drug_mapper_2 (
-        drug_id TEXT,
-        primaryid TEXT,
-        drug_seq TEXT,
-        role_cod TEXT,
-        period TEXT,
-        drugname TEXT,
-        prod_ai TEXT,
-        notes TEXT,
-        rxaui VARCHAR(8),
-        rxcui VARCHAR(8),
-        str TEXT,
-        sab VARCHAR(20),
-        tty VARCHAR(20),
-        code VARCHAR(50),
-        remapping_notes TEXT,
-        rela TEXT,
-        remapping_rxaui VARCHAR(8),
-        remapping_rxcui VARCHAR(8),
-        remapping_str TEXT,
-        remapping_sab VARCHAR(20),
-        remapping_tty VARCHAR(20),
-        remapping_code VARCHAR(50)
-    );
-
     INSERT INTO faers_b.drug_mapper_2
-    SELECT c.drug_id::TEXT, c.primaryid::TEXT, c.drug_seq::TEXT, c.role_cod, c.period, c.drugname, c.prod_ai, c.notes,
-           c.rxaui::VARCHAR(8), c.rxcui::VARCHAR(8), c.str, c.sab, c.tty, c.code,
+    SELECT c.drug_id, c.primaryid, c.drug_seq, c.role_cod, c.period, c.drugname, c.prod_ai, c.notes,
+           c.rxaui, c.rxcui, c.str, c.sab, c.tty, c.code,
            CASE WHEN a.rxaui IS NULL THEN c.remapping_notes ELSE '2' END AS remapping_notes,
            b.rela,
            CASE WHEN a.rxaui IS NULL THEN c.remapping_rxaui ELSE a.rxaui END AS remapping_rxaui,
@@ -193,7 +259,7 @@ BEGIN
            CASE WHEN a.code IS NULL THEN c.remapping_code ELSE a.code END AS remapping_code
     FROM faers_b.rxnconso a
     INNER JOIN faers_b.rxnrel b ON a.rxcui = b.rxcui1 AND a.tty = 'IN' AND a.sab = 'RXNORM'
-    RIGHT OUTER JOIN faers_b.drug_mapper c ON b.rxcui2 = c.rxcui::VARCHAR(8)
+    RIGHT OUTER JOIN faers_b.drug_mapper c ON b.rxcui2 = c.rxcui
     WHERE c.remapping_notes IS NULL;
 
     INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 2', 'Created drug_mapper_2 successfully');
@@ -204,16 +270,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 10: Step 3 - Manual Remapping Update
+-- Statement 14: Step 3 - Manual Remapping Update
 CREATE OR REPLACE FUNCTION faers_b.step_3_manual_remapping_update() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -228,9 +293,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'hopefully_last_one_5_7_2021'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'hopefully_last_one_5_7_2021'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -238,11 +302,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 3', 'Table faers_b.rxnconso does not exist, skipping Step 3');
         RETURN;
     END IF;
@@ -269,16 +334,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 11: Step 4 - Manual Remapping Insert
+-- Statement 15: Step 4 - Manual Remapping Insert
 CREATE OR REPLACE FUNCTION faers_b.step_4_manual_remapping_insert() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -293,9 +357,8 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'hopefully_last_one_5_7_2021'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'hopefully_last_one_5_7_2021'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -303,11 +366,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 4', 'Table faers_b.rxnconso does not exist, skipping Step 4');
         RETURN;
     END IF;
@@ -340,16 +404,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 12: Step 5 - Manual Remapping Delete
+-- Statement 16: Step 5 - Manual Remapping Delete
 CREATE OR REPLACE FUNCTION faers_b.step_5_manual_remapping_delete() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -374,16 +437,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 13: Step 6 - VANDF Relationships
+-- Statement 17: Step 6 - VANDF Relationships
 CREATE OR REPLACE FUNCTION faers_b.step_6_vandf_relationships() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -397,20 +459,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 6', 'Table faers_b.rxnconso does not exist, skipping Step 6');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 6', 'Table faers_b.rxnrel does not exist, skipping Step 6');
         RETURN;
     END IF;
@@ -447,16 +511,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 14: Step 7 - MMSL to RXNORM Insert
+-- Statement 18: Step 7 - MMSL to RXNORM Insert
 CREATE OR REPLACE FUNCTION faers_b.step_7_mmsl_to_rxnorm_insert() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -470,20 +533,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 7', 'Table faers_b.rxnconso does not exist, skipping Step 7');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 7', 'Table faers_b.rxnrel does not exist, skipping Step 7');
         RETURN;
     END IF;
@@ -526,16 +591,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 15: Step 8 - RXNORM SCDC to IN Insert
+-- Statement 19: Step 8 - RXNORM SCDC to IN Insert
 CREATE OR REPLACE FUNCTION faers_b.step_8_rxnorm_scdc_to_in_insert() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -549,20 +613,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 8', 'Table faers_b.rxnconso does not exist, skipping Step 8');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 8', 'Table faers_b.rxnrel does not exist, skipping Step 8');
         RETURN;
     END IF;
@@ -603,16 +669,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 16: Step 9 - RXNORM IN Update with Notes
+-- Statement 20: Step 9 - RXNORM IN Update with Notes
 CREATE OR REPLACE FUNCTION faers_b.step_9_rxnorm_in_update_with_notes() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -626,20 +691,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 9', 'Table faers_b.rxnconso does not exist, skipping Step 9');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 9', 'Table faers_b.rxnrel does not exist, skipping Step 9');
         RETURN;
     END IF;
@@ -668,16 +735,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 17: Step 10 - MTHSPL to RXNORM IN Insert
+-- Statement 21: Step 10 - MTHSPL to RXNORM IN Insert
 CREATE OR REPLACE FUNCTION faers_b.step_10_mthspl_to_rxnorm_in_insert() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -691,20 +757,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 10', 'Table faers_b.rxnconso does not exist, skipping Step 10');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 10', 'Table faers_b.rxnrel does not exist, skipping Step 10');
         RETURN;
     END IF;
@@ -744,16 +812,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 18: Step 11 - RXNORM IN Update
+-- Statement 22: Step 11 - RXNORM IN Update
 CREATE OR REPLACE FUNCTION faers_b.step_11_rxnorm_in_update() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -767,11 +834,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 11', 'Table faers_b.rxnconso does not exist, skipping Step 11');
         RETURN;
     END IF;
@@ -797,16 +865,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 19: Step 12 - MMSL to RXNORM IN Insert with Exclusions
+-- Statement 23: Step 12 - MMSL to RXNORM IN Insert with Exclusions
 CREATE OR REPLACE FUNCTION faers_b.step_12_mmsl_to_rxnorm_in_insert_exclusions() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -820,20 +887,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 12', 'Table faers_b.rxnconso does not exist, skipping Step 12');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 12', 'Table faers_b.rxnrel does not exist, skipping Step 12');
         RETURN;
     END IF;
@@ -874,16 +943,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 20: Step 13 - RXNORM Cleanup Update
+-- Statement 24: Step 13 - RXNORM Cleanup Update
 CREATE OR REPLACE FUNCTION faers_b.step_13_rxnorm_cleanup_update() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -897,11 +965,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 13', 'Table faers_b.rxnconso does not exist, skipping Step 13');
         RETURN;
     END IF;
@@ -934,16 +1003,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 21: Step 14 - Mark for Deletion
+-- Statement 25: Step 14 - Mark for Deletion
 CREATE OR REPLACE FUNCTION faers_b.step_14_mark_for_deletion() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -957,20 +1025,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 14', 'Table faers_b.rxnconso does not exist, skipping Step 14');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 14', 'Table faers_b.rxnrel does not exist, skipping Step 14');
         RETURN;
     END IF;
@@ -992,16 +1062,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 22: Step 15 - Reinsert from Deleted
+-- Statement 26: Step 15 - Reinsert from Deleted
 CREATE OR REPLACE FUNCTION faers_b.step_15_reinsert_from_deleted() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1015,20 +1084,22 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 15', 'Table faers_b.rxnconso does not exist, skipping Step 15');
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnrel'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 15', 'Table faers_b.rxnrel does not exist, skipping Step 15');
         RETURN;
     END IF;
@@ -1060,16 +1131,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 23: Step 16 - Delete Marked Rows
+-- Statement 27: Step 16 - Delete Marked Rows
 CREATE OR REPLACE FUNCTION faers_b.step_16_delete_marked_rows() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1094,16 +1164,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 24: Step 17 - Clean Duplicates
+-- Statement 28: Step 17 - Clean Duplicates
 CREATE OR REPLACE FUNCTION faers_b.step_17_clean_duplicates() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1136,16 +1205,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 25: Step 18 - Update RXAUI Mappings
+-- Statement 29: Step 18 - Update RXAUI Mappings
 CREATE OR REPLACE FUNCTION faers_b.step_18_update_rxaui_mappings() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1159,11 +1227,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 18', 'Table faers_b.rxnconso does not exist, skipping Step 18');
         RETURN;
     END IF;
@@ -1186,16 +1255,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 26: Step 19 - Non-RXNORM SAB Update
+-- Statement 30: Step 19 - Non-RXNORM SAB Update
 CREATE OR REPLACE FUNCTION faers_b.step_19_non_rxnorm_sab_update() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1209,11 +1277,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 19', 'Table faers_b.rxnconso does not exist, skipping Step 19');
         RETURN;
     END IF;
@@ -1240,16 +1309,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 27: Step 20 - RXNORM SAB Specific Update
+-- Statement 31: Step 20 - RXNORM SAB Specific Update
 CREATE OR REPLACE FUNCTION faers_b.step_20_rxnorm_sab_specific_update() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1263,11 +1331,12 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'rxnconso'
-    ) THEN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Step 20', 'Table faers_b.rxnconso does not exist, skipping Step 20');
         RETURN;
     END IF;
@@ -1295,16 +1364,15 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 28: Populate manual_remapper
+-- Statement 32: Populate manual_remapper
 CREATE OR REPLACE FUNCTION faers_b.populate_manual_remapper() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
-        AND relname = 'drug_mapper_2'
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
     IF NOT table_exists THEN
@@ -1317,18 +1385,6 @@ BEGIN
         INSERT INTO faers_b.remapping_log (step, message) VALUES ('Populate Manual Remapper', 'Table faers_b.drug_mapper_2 is empty, skipping');
         RETURN;
     END IF;
-
-    DROP TABLE IF EXISTS faers_b.manual_remapper;
-    CREATE TABLE faers_b.manual_remapper (
-        count INTEGER,
-        source_drugname VARCHAR(3000),
-        source_rxaui VARCHAR(8),
-        source_rxcui VARCHAR(8),
-        source_sab VARCHAR(20),
-        source_tty VARCHAR(20),
-        final_rxaui BIGINT,
-        notes VARCHAR(100)
-    );
 
     INSERT INTO faers_b.manual_remapper
     (count, source_drugname, source_rxaui, source_rxcui, source_sab, source_tty)
@@ -1345,8 +1401,76 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql;
 
--- Statement 29: Merge manual remappings into drug_mapper_3
+-- Statement 33: Merge manual remappings into drug_mapper_3
 CREATE OR REPLACE FUNCTION faers_b.merge_manual_remappings() RETURNS VOID AS $$
 DECLARE
     table_exists BOOLEAN;
-    row
+    row_count BIGINT;
+    row RECORD;
+BEGIN
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'manual_remapper'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
+        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Merge Manual Remappings', 'Table faers_b.manual_remapper does not exist, skipping');
+        RETURN;
+    END IF;
+
+    SELECT COUNT(*) INTO row_count FROM faers_b.manual_remapper;
+    IF row_count = 0 THEN
+        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Merge Manual Remappings', 'Table faers_b.manual_remapper is empty, skipping');
+        RETURN;
+    END IF;
+
+    SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
+    ) INTO table_exists;
+
+    IF NOT table_exists THEN
+        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Merge Manual Remappings', 'Table faers_b.drug_mapper_2 does not exist, skipping');
+        RETURN;
+    END IF;
+
+    SELECT COUNT(*) INTO row_count FROM faers_b.drug_mapper_2;
+    IF row_count = 0 THEN
+        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Merge Manual Remappings', 'Table faers_b.drug_mapper_2 is empty, skipping');
+        RETURN;
+    END IF;
+
+    INSERT INTO faers_b.drug_mapper_3
+    SELECT d.drug_id, d.primaryid, d.drug_seq, d.role_cod, d.period, d.drugname, d.prod_ai, d.notes,
+           d.rxaui, d.rxcui, d.str, d.sab, d.tty, d.code,
+           d.remapping_rxaui, d.remapping_rxcui, d.remapping_str, d.remapping_sab, d.remapping_tty,
+           d.remapping_code, d.remapping_notes
+    FROM faers_b.drug_mapper_2 d
+    LEFT JOIN faers_b.manual_remapper m
+    ON d.drugname = m.source_drugname
+    AND d.remapping_rxaui = m.source_rxaui
+    AND d.remapping_rxcui = m.source_rxcui
+    AND d.remapping_sab = m.source_sab
+    AND d.remapping_tty = m.source_tty
+    WHERE m.final_rxaui IS NOT NULL
+      OR d.remapping_notes IS NOT NULL;
+
+    FOR row IN (SELECT * FROM faers_b.manual_remapper WHERE final_rxaui IS NOT NULL)
+    LOOP
+        UPDATE faers_b.drug_mapper_3
+        SET remapping_rxaui = row.final_rxaui::VARCHAR(8),
+            remapping_notes = COALESCE(remapping_notes, '') || ' (Manual Remapped)'
+        WHERE drugname = row.source_drugname
+          AND remapping_rxaui = row.source_rxaui
+          AND remapping_rxcui = row.source_rxcui
+          AND remapping_sab = row.source_sab
+          AND remapping_tty = row.source_tty;
+    END LOOP;
+
+    INSERT INTO faers_b.remapping_log (step, message) VALUES ('Merge Manual Remappings', 'Merged manual remappings into drug_mapper_3 successfully');
+EXCEPTION
+    WHEN OTHERS THEN
+        INSERT INTO faers_b.remapping_log (step, message) VALUES ('Merge Manual Remappings', 'Error in Merge Manual Remappings: ' || SQLERRM);
+        RAISE;
+END;
+$$ LANGUAGE plpgsql;

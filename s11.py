@@ -100,21 +100,18 @@ def parse_sql_statements(sql_script):
     """Parse SQL script into individual statements, preserving DO blocks and functions."""
     statements = []
     current_statement = []
-    in_do_block = False
-    in_function = False
-    do_block_start = re.compile(r'^\s*DO\s*\$\$', re.IGNORECASE)
-    function_start = re.compile(r'^\s*CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+', re.IGNORECASE)
+    in_dollar_quoted = False
     dollar_quote = re.compile(r'\$\$')
     comment_line = re.compile(r'^\s*--.*$', re.MULTILINE)
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
     copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
 
+    # Clean script
     sql_script = sql_script.lstrip('\ufeff')
     sql_script = re.sub(comment_line, '', sql_script)
     sql_script = re.sub(comment_inline, '', sql_script)
 
     lines = sql_script.splitlines()
-    dollar_count = 0
     for line in lines:
         line = line.strip()
         if not line:
@@ -124,35 +121,24 @@ def parse_sql_statements(sql_script):
             logger.debug("Skipping \\copy command: %s", line[:100])
             continue
 
-        if do_block_start.match(line) and not in_function:
-            in_do_block = True
-            dollar_count = 0
-            current_statement.append(line)
-        elif function_start.match(line):
-            in_function = True
-            dollar_count = 0
-            current_statement.append(line)
-        elif dollar_quote.search(line):
-            dollar_count += len(dollar_quote.findall(line))
-            current_statement.append(line)
-            if (in_do_block or in_function) and dollar_count % 2 == 0:
-                if in_do_block:
-                    in_do_block = False
-                if in_function and line.strip().endswith('LANGUAGE plpgsql;'):
-                    in_function = False
-                statements.append("\n".join(current_statement))
-                current_statement = []
-        elif in_do_block or in_function:
-            current_statement.append(line)
-        else:
-            current_statement.append(line)
-            if line.endswith(";"):
-                statements.append("\n".join(current_statement))
-                current_statement = []
+        current_statement.append(line)
 
+        # Track dollar-quoted blocks
+        if dollar_quote.search(line):
+            if not in_dollar_quoted:
+                in_dollar_quoted = True
+            else:
+                in_dollar_quoted = False
+
+        # End of a statement
+        if not in_dollar_quoted and line.endswith(';'):
+            statements.append("\n".join(current_statement))
+            current_statement = []
+
+    # Handle any remaining statement
     if current_statement:
-        logger.warning("Incomplete statement detected: %s", "\n".join(current_statement)[:100])
         statements.append("\n".join(current_statement))
+        logger.warning("Incomplete statement detected: %s", "\n".join(current_statement)[:100])
 
     return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 
@@ -200,8 +186,6 @@ def run_s11_sql():
 
                 for i, stmt in enumerate(statements, 1):
                     logger.debug("Statement %d (length: %d): %s...", i, len(stmt), stmt[:1000])
-
-                for i, stmt in enumerate(statements, 1):
                     logger.info("Executing statement %d...", i)
                     try:
                         execute_with_retry(cur, stmt)

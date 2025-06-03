@@ -1,191 +1,202 @@
-﻿
-ALTER TABLE "DEMO_Combined" ADD COLUMN IF NOT EXISTS "AGE_Years_fixed" FLOAT;
+﻿-- Set schema search path
+SET search_path TO faers_combined, public;
 
-WITH AgeConversion AS (
+-- STANDARDIZE DEMO_Combined AGE FIELD TO YEARS
+ALTER TABLE faers_combined."DEMO_Combined"
+ADD COLUMN IF NOT EXISTS age_years_fixed FLOAT;
+
+WITH cte AS (
     SELECT
         "DEMO_ID",
+        age,
+        age_cod,
         CASE
-            WHEN "AGE_COD" = 'DEC' THEN ROUND(CAST("AGE" AS FLOAT) * 12, 2)
-            WHEN "AGE_COD" IN ('YR', 'YEAR') THEN ROUND("AGE", 2)
-            WHEN "AGE_COD" = 'MON' THEN ROUND(CAST("AGE" AS FLOAT) / 12, 2)
-            WHEN "AGE_COD" IN ('WK', 'WEEK') THEN ROUND(CAST("AGE" AS FLOAT) / 52, 2)
-            WHEN "AGE_COD" IN ('DY', 'DAY') THEN ROUND(CAST("AGE" AS FLOAT) / 365, 2)
-            WHEN "AGE_COD" IN ('HR', 'HOUR') THEN ROUND(CAST("AGE" AS FLOAT) / 8760, 2)
-            ELSE NULL  -- Handle unknown age codes explicitly
-        END AS "AGE_Years_fixed"
-    FROM "DEMO_Combined"
-    WHERE "AGE" ~ '^[0-9\.]+$'  -- Ensure AGE is numeric
+            WHEN age_cod = 'DEC' THEN ROUND(CAST(age AS NUMERIC) * 12, 2)
+            WHEN age_cod IN ('YR', 'YEAR') THEN ROUND(CAST(age AS NUMERIC), 2)
+            WHEN age_cod = 'MON' THEN ROUND(CAST(age AS NUMERIC) / 12, 2)
+            WHEN age_cod IN ('WK', 'WEEK') THEN ROUND(CAST(age AS NUMERIC) / 52, 2)
+            WHEN age_cod IN ('DY', 'DAY') THEN ROUND(CAST(age AS NUMERIC) / 365, 2)
+            WHEN age_cod IN ('HR', 'HOUR') THEN ROUND(CAST(age AS NUMERIC) / 8760, 2)
+            ELSE NULL
+        END AS age_years_fixed
+    FROM faers_combined."DEMO_Combined"
+    WHERE age ~ '^[0-9]+(\.[0-9]+)?$' -- ISNUMERIC check
 )
-UPDATE "DEMO_Combined"
-SET "AGE_Years_fixed" = ac."AGE_Years_fixed"
-FROM AgeConversion ac
-WHERE "DEMO_Combined"."DEMO_ID" = ac."DEMO_ID";
+UPDATE faers_combined."DEMO_Combined"
+SET age_years_fixed = cte.age_years_fixed
+FROM cte
+WHERE faers_combined."DEMO_Combined"."DEMO_ID" = cte."DEMO_ID";
 
--- Debug: Check AGE_Years_fixed after update
-SELECT COUNT(*) FROM "DEMO_Combined" WHERE "AGE_Years_fixed" IS NOT NULL;
+-- Add COUNTRY_CODE column
+ALTER TABLE faers_combined."DEMO_Combined"
+ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);
 
--- 2. Standardize DEMO_Combined Country Code
-ALTER TABLE "DEMO_Combined" ADD COLUMN IF NOT EXISTS "COUNTRY_CODE" VARCHAR(2);
+-- Update COUNTRY_CODE using CSV-based country mappings
+DO $$
+BEGIN
+    -- Check if file exists
+    IF NOT EXISTS (
+        SELECT FROM pg_stat_file('/data/faers/FAERS_MAK/2.LoadDataToDatabase/reporter_countries.csv')
+    ) THEN
+        RAISE NOTICE 'File /data/faers/FAERS_MAK/2.LoadDataToDatabase/reporter_countries.csv does not exist, skipping country_mappings creation';
+        RETURN;
+    END IF;
 
-UPDATE "DEMO_Combined"
-SET "COUNTRY_CODE" = CASE
-    WHEN LENGTH(reporter_country) = 2 THEN reporter_country
-    ELSE NULL
-END;
+    DROP TABLE IF EXISTS faers_combined.country_mappings;
+    CREATE TABLE faers_combined.country_mappings (
+        country_name VARCHAR(255) PRIMARY KEY,
+        country_code VARCHAR(2)
+    );
 
--- Debug: Check COUNTRY_CODE after update
-SELECT COUNT(*) FROM "DEMO_Combined" WHERE "COUNTRY_CODE" IS NOT NULL;
+    \copy faers_combined.country_mappings(country_name, country_code) FROM '/data/faers/FAERS_MAK/2.LoadDataToDatabase/reporter_countries.csv' WITH (FORMAT CSV, DELIMITER ',', HEADER true, NULL '');
 
--- 3. Standardize DEMO_Combined Gender
-ALTER TABLE "DEMO_Combined" ADD COLUMN IF NOT EXISTS "Gender" VARCHAR(3);
+    -- Clean up country_code
+    UPDATE faers_combined.country_mappings
+    SET country_code = NULL
+    WHERE country_code = '';
 
-UPDATE "DEMO_Combined"
-SET "Gender" = CASE
-    WHEN sex IN ('M', 'F') THEN sex  -- Keep only 'M' and 'F'
-    ELSE NULL
-END;
+    -- Update DEMO_Combined country_code field
+    UPDATE faers_combined."DEMO_Combined"
+    SET country_code = (
+        SELECT m.country_code
+        FROM faers_combined.country_mappings m
+        WHERE faers_combined."DEMO_Combined".reporter_country = m.country_name
+    )
+    WHERE country_code IS NULL;
 
--- Debug: Check Gender after updates
-SELECT COUNT(*) FROM "DEMO_Combined" WHERE "Gender" IS NOT NULL;
+    -- If reporter_country is already a 2-character code, retain it
+    UPDATE faers_combined."DEMO_Combined"
+    SET country_code = reporter_country
+    WHERE LENGTH(reporter_country) = 2 AND country_code IS NULL;
+END $$;
 
--- 4. Prepare for De-duplication: Combine Data
-DROP TABLE IF EXISTS "Aligned_DEMO_DRUG_REAC_INDI_THER";
+-- Add and standardize Gender column
+ALTER TABLE faers_combined."DEMO_Combined"
+ADD COLUMN IF NOT EXISTS gender VARCHAR(3);
 
-CREATE TABLE "Aligned_DEMO_DRUG_REAC_INDI_THER" AS
-WITH CombinedData AS (
-    SELECT
-        d."DEMO_ID",
-        d.caseid,
-        d.primaryid,
-        d.caseversion,
-        d.fda_dt,
-        d."I_F_COD",
-        d.event_dt,
-        d."AGE_Years_fixed",
-        d."GENDER",
-        d."COUNTRY_CODE",
-        d.OCCP_COD,
-        d."PERIOD",
-        STRING_AGG(DISTINCT dr.drugname, '/' ORDER BY dr.DRUG_SEQ) AS Aligned_drugs,
-        STRING_AGG(DISTINCT ic.MEDDRA_CODE::TEXT, '/' ORDER BY ic.indi_drug_seq, ic.MEDDRA_CODE) FILTER (WHERE ic.MEDDRA_CODE NOT IN (10070592, 10057097)) AS Aligned_INDI,
-        STRING_AGG(DISTINCT th.START_DT::TEXT, '/' ORDER BY th.dsg_drug_seq, th.START_DT) AS Aligned_START_DATE,
-        STRING_AGG(DISTINCT rc.MEDDRA_CODE::TEXT, '/' ORDER BY rc.MEDDRA_CODE) AS ALIGNED_REAC
-    FROM "DEMO_Combined" d
-    LEFT JOIN "DRUG_Combined" dr ON d.primaryid = dr.primaryid
-    LEFT JOIN "INDI_Combined" ic ON d.primaryid = ic.primaryid
-    LEFT JOIN "THER_Combined" th ON d.primaryid = th.primaryid
-    LEFT JOIN "REAC_Combined" rc ON d.primaryid = rc.primaryid
-    GROUP BY d."DEMO_ID", d.caseid, d.primaryid, d.caseversion, d.fda_dt, d."I_F_COD", d.event_dt, d."AGE_Years_fixed", d."GENDER", d."COUNTRY_CODE", d.OCCP_COD, d."PERIOD"
-)
-SELECT
-    cd.*
-FROM (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY caseid ORDER BY primaryid DESC, "PERIOD" DESC, caseversion DESC, fda_dt DESC, "I_F_COD" DESC, event_dt DESC) AS row_num
-    FROM CombinedData
-) cd
-WHERE cd.row_num = 1;
+UPDATE faers_combined."DEMO_Combined"
+SET gender = gndr_cod;
 
--- Debug: Check ALIGNED_DEMO_DRUG_REAC_INDI_THER after creation
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+UPDATE faers_combined."DEMO_Combined"
+SET gender = NULL
+WHERE gender IN ('UNK', 'NS', 'YR');
 
--- 5. De-duplication Steps (Full Match and Partial Matches)
+-- Create ALIGNED_DEMO_DRUG_REAC_INDI_THER table
+DO $$
+DECLARE
+    table_exists BOOLEAN;
+BEGIN
+    -- Check DEMO_Combined
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'DEMO_Combined'
+    ) INTO table_exists;
 
--- Full match (all criteria)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE (event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.DEMO_Combined does not exist, creating empty ALIGNED_DEMO_DRUG_REAC_INDI_THER';
+    END IF;
 
--- Debug: Check after first de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+    -- Check DRUG_Combined
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'DRUG_Combined'
+    ) INTO table_exists;
 
--- Partial match (excluding event_dt)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE ("AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.DRUG_Combined does not exist, creating empty ALIGNED_DEMO_DRUG_REAC_INDI_THER';
+    END IF;
 
--- Debug: Check after second de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+    -- Check REAC_Combined
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'REAC_Combined'
+    ) INTO table_exists;
 
--- Partial match (excluding AGE_Years_fixed)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY event_dt, "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE (event_dt, "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.REAC_Combined does not exist, creating empty ALIGNED_DEMO_DRUG_REAC_INDI_THER';
+    END IF;
 
--- Debug: Check after third de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+    -- Check INDI_Combined
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'INDI_Combined'
+    ) INTO table_exists;
 
--- Partial match (excluding GENDER)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE (event_dt, "AGE_Years_fixed", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.INDI_Combined does not exist, creating empty ALIGNED_DEMO_DRUG_REAC_INDI_THER';
+    END IF;
 
--- Debug: Check after fourth de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+    -- Check THER_Combined
+    SELECT EXISTS (
+        SELECT FROM pg_class 
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_combined') 
+        AND relname = 'THER_Combined'
+    ) INTO table_exists;
 
--- Partial match (excluding COUNTRY_CODE)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE (event_dt, "AGE_Years_fixed", "GENDER", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", Aligned_drugs, Aligned_INDI, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+    IF NOT table_exists THEN
+        RAISE NOTICE 'Table faers_combined.THER_Combined does not exist, creating empty ALIGNED_DEMO_DRUG_REAC_INDI_THER';
+    END IF;
+END $$;
 
--- Debug: Check after fifth de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+-- Create ALIGNED_DEMO_DRUG_REAC_INDI_THER table structure
+DROP TABLE IF EXISTS faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+CREATE TABLE faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER" (
+    "primaryid" BIGINT,
+    "caseid" BIGINT,
+    age_years_fixed FLOAT,
+    country_code VARCHAR(2),
+    gender VARCHAR(3),
+    "DRUG_ID" INTEGER,
+    "drug_seq" BIGINT,
+    "role_cod" VARCHAR(2),
+    "drugname" TEXT,
+    "prod_ai" TEXT,
+    "nda_num" VARCHAR(200),
+    reaction TEXT,
+    reaction_meddra_code TEXT,
+    indication TEXT,
+    indication_meddra_code TEXT,
+    therapy_start_date DATE,
+    therapy_end_date DATE,
+    reporting_period VARCHAR(10)
+);
 
--- Partial match (excluding Aligned_INDI)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_START_DATE, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE (event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_START_DATE, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
+-- Populate table if data exists
+INSERT INTO faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER"
+SELECT DISTINCT
+    d."primaryid",
+    d."caseid",
+    d.age_years_fixed,
+    d.country_code,
+    d.gender,
+    dr."DRUG_ID",
+    dr."drug_seq",
+    dr."role_cod",
+    dr."drugname",
+    dr."prod_ai",
+    dr."nda_num",
+    r.pt AS reaction,
+    r.meddra_code AS reaction_meddra_code,
+    i.indi AS indication,
+    i.meddra_code AS indication_meddra_code,
+    t.start_dt AS therapy_start_date,
+    t.end_dt AS therapy_end_date,
+    dr."PERIOD" AS reporting_period
+FROM faers_combined."DEMO_Combined" d
+INNER JOIN faers_combined."DRUG_Combined" dr
+    ON d."primaryid" = dr."primaryid"
+INNER JOIN faers_combined."REAC_Combined" r
+    ON d."primaryid" = r."primaryid"
+INNER JOIN faers_combined."INDI_Combined" i
+    ON d."primaryid" = i."primaryid"
+INNER JOIN faers_combined."THER_Combined" t
+    ON d."primaryid" = t."primaryid" AND dr."drug_seq" = t."drug_seq"
+ON CONFLICT DO NOTHING;
 
--- Debug: Check after sixth de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
-
--- Partial match (excluding Aligned_START_DATE)
-WITH RankedRows AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, ALIGNED_REAC ORDER BY primaryid DESC, "PERIOD" DESC) AS row_num
-    FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-)
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE (event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, ALIGNED_REAC, primaryid, "PERIOD") IN (SELECT event_dt, "AGE_Years_fixed", "GENDER", "COUNTRY_CODE", Aligned_drugs, Aligned_INDI, ALIGNED_REAC, primaryid, "PERIOD" FROM RankedRows WHERE row_num > 1);
-
--- Debug: Check after seventh de-duplication
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
-
--- 6. Delete Cases from Deleted Reports
-DELETE FROM "Aligned_DEMO_DRUG_REAC_INDI_THER"
-WHERE CASEID IN (SELECT Field1 FROM "COMBINED_DELETED_CASES_REPORTS");
-
--- Debug: Check after deleting cases
-SELECT COUNT(*) FROM "ALIGNED_DEMO_DRUG_REAC_INDI_THER";
+-- Create indexes
+CREATE INDEX IF NOT EXISTS "idx_aligned_primaryid" ON faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER" ("primaryid");
+CREATE INDEX IF NOT EXISTS "idx_aligned_drug_id" ON faers_combined."ALIGNED_DEMO_DRUG_REAC_INDI_THER" ("DRUG_ID");
