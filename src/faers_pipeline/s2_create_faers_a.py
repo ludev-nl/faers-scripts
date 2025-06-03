@@ -7,14 +7,15 @@ from google.cloud import storage
 import tempfile
 import time
 import sys
-from constants import CONFIG_DIR
+import chardet
+from constants import CONFIG_DIR, LOGS_DIR
 
 # --- Logging Setup ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("logs/s2_execution.log"),
+        logging.FileHandler(LOGS_DIR / "s2_execution.log"),
         logging.StreamHandler()
     ]
 )
@@ -23,10 +24,11 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
+SQL_FILE = "setup_faers.sql"
+SKIPPED_FILES_LOG = "skipped_files.log"
 
 def check_psycopg_version():
     """Check psycopg version."""
-    import psycopg
     version = psycopg.__version__
     logger.info(f"Using psycopg version: {version}")
     if not version.startswith("3."):
@@ -61,6 +63,20 @@ def load_schema_config():
         logger.error(f"Error decoding {SCHEMA_FILE}: {e}")
         raise
 
+def execute_sql_file(conn, sql_file):
+    """Execute an SQL file."""
+    try:
+        with open(sql_file, "r", encoding="utf-8") as f:
+            sql = f.read()
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.commit()
+        logger.info(f"Executed SQL file {sql_file}")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error executing {sql_file}: {e}")
+        raise
+
 def check_file_exists(bucket_name, file_name):
     """Check if a file exists in GCS."""
     try:
@@ -87,6 +103,31 @@ def download_gcs_file(bucket_name, file_name, local_path):
         logger.error(f"Error downloading {file_name}: {e}")
         return False
 
+def detect_encoding(file_path):
+    """Detect file encoding."""
+    with open(file_path, "rb") as f:
+        raw_data = f.read(100000)  # Read first 100KB
+        result = chardet.detect(raw_data)
+        encoding = result["encoding"]
+        confidence = result["confidence"]
+        logger.info(f"Detected encoding for {file_path}: {encoding} (confidence: {confidence})")
+        return encoding
+
+def preprocess_file(input_path, output_path):
+    """Preprocess file to ensure UTF-8 compatibility."""
+    try:
+        with open(input_path, "rb") as f:
+            raw_data = f.read()
+        # Decode with replacement for invalid characters
+        content = raw_data.decode("utf-8", errors="replace")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info(f"Preprocessed {input_path} to {output_path} as UTF-8")
+        return True
+    except Exception as e:
+        logger.error(f"Error preprocessing {input_path}: {e}")
+        return False
+
 def get_schema_for_period(schema_config, table_name, year, quarter):
     """Get schema for a table and period."""
     table_schemas = schema_config.get(table_name.upper())
@@ -103,6 +144,7 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
         if (start_year <= year <= end_year) and \
            (start_year < year or start_quarter <= quarter) and \
            (year < end_year or quarter <= end_quarter):
+            logger.info(f"Schema for {table_name} {target_date}: {schema_info['columns'].keys()}")
             return schema_info["columns"]
 
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
@@ -143,8 +185,19 @@ def import_data_file(conn, file_path, table_name, schema_name, year, quarter, sc
             schema = get_schema_for_period(schema_config, schema_name, year, quarter)
             create_table_if_not_exists(conn, table_name, schema)
 
-            if not validate_data_file(file_path, schema):
-                logger.error(f"Validation failed for {file_path}")
+            # Preprocess file to ensure UTF-8
+            temp_file = f"{file_path}.utf8"
+            if not preprocess_file(file_path, temp_file):
+                logger.error(f"Skipping {file_path} due to preprocessing failure")
+                with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
+                    f.write(f"{file_path}: Preprocessing failed\n")
+                return
+
+            if not validate_data_file(temp_file, schema):
+                logger.error(f"Validation failed for {temp_file}")
+                with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
+                    f.write(f"{temp_file}: Validation failed\n")
+                os.remove(temp_file)
                 return
 
             with conn.cursor() as cur:
@@ -168,7 +221,8 @@ def import_data_file(conn, file_path, table_name, schema_name, year, quarter, sc
                                 break
                             copy.write(chunk)
             conn.commit()
-            logger.info(f"Imported {file_path} into {table_name}")
+            logger.info(f"Imported {temp_file} into {table_name}")
+            os.remove(temp_file)
             return
         except Exception as e:
             conn.rollback()
@@ -176,6 +230,8 @@ def import_data_file(conn, file_path, table_name, schema_name, year, quarter, sc
             if attempt < max_retries - 1:
                 time.sleep(5)
     logger.error(f"Failed to import {file_path} after {max_retries} attempts")
+    with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
+        f.write(f"{file_path}: Failed after {max_retries} attempts: {str(e)}\n")
 
 def list_files_in_gcs_directory(bucket_name, directory_path):
     """List .txt files in GCS directory."""
@@ -187,9 +243,23 @@ def list_files_in_gcs_directory(bucket_name, directory_path):
     except Exception as e:
         logger.error(f"Error listing GCS files: {e}")
         return []
+    
+def execute_sql_file(conn, sql_file):
+    logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
+    try:
+        with open(sql_file, "r", encoding="utf-8") as f:
+            sql = f.read()
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.commit()
+        logger.info(f"Executed SQL file {sql_file}")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error executing {sql_file}: {e}")
+        raise
 
 def main():
-    """Main function to load FAERS data."""
+    """Main function to set up and load FAERS data."""
     check_psycopg_version()
     config = load_config()
     schema_config = load_schema_config()
@@ -201,8 +271,22 @@ def main():
     if not os.path.exists(local_dir):
         os.makedirs(local_dir)
 
+    # Initialize skipped files log
+    with open(SKIPPED_FILES_LOG, "w", encoding="utf-8") as f:
+        f.write("Skipped files during setup_faers.py execution:\n")
+
     try:
         with psycopg.connect(**db_params) as conn:
+            # Execute setup SQL
+            execute_sql_file(conn, SQL_FILE)
+
+            # Get valid year-quarters
+            with conn.cursor() as cur:
+                cur.execute("SELECT year, quarter FROM get_completed_year_quarters(4)")
+                valid_quarters = [(row[0], row[1]) for row in cur.fetchall()]
+                logger.info(f"Valid year-quarters: {valid_quarters}")
+
+            # List GCS files
             files_to_process = list_files_in_gcs_directory(bucket_name, gcs_directory)
             if not files_to_process:
                 logger.info(f"No .txt files found in gs://{bucket_name}/{gcs_directory}")
@@ -217,12 +301,32 @@ def main():
                 schema_name = match.group(1).upper()
                 year = 2000 + int(match.group(2))
                 quarter = int(match.group(3))
-                table_name = f"faers_a.{schema_name.lower()}{year % 100:02d}q{quarter}"
 
+                # Check if year-quarter is valid
+                if (year, quarter) not in valid_quarters:
+                    logger.warning(f"Skipping invalid year-quarter: {year}Q{quarter}")
+                    continue
+
+                table_name = f"faers_a.{schema_name.lower()}{year % 100:02d}q{quarter}"
                 local_path = os.path.join(local_dir, os.path.basename(gcs_file_path))
                 if download_gcs_file(bucket_name, gcs_file_path, local_path):
                     import_data_file(conn, local_path, table_name, schema_name, year, quarter, schema_config)
-                    os.remove(local_path)
+                    if os.path.exists(local_path):
+                        os.remove(local_path)
+
+            # Verify loaded tables
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'faers_a'
+                    ORDER BY table_name
+                """)
+                for row in cur.fetchall():
+                    table_name = row[0]
+                    cur.execute(f"SELECT COUNT(*) FROM faers_a.\"{table_name}\"")
+                    row_count = cur.fetchone()[0]
+                    logger.info(f"Table faers_a.{table_name} has {row_count} rows")
 
     except psycopg.Error as e:
         logger.error(f"Database error: {e}")

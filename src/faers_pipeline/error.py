@@ -9,7 +9,6 @@ import os
 from datetime import datetime
 import zoneinfo
 
-#TODO fix this not hard code
 LOG_DIR = os.path.abspath('faers/data/logs')
 rootLogger = None
 
