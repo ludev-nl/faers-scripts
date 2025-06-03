@@ -7,9 +7,16 @@ import sys
 import psycopg
 from io import BytesIO
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-# Import the module to test
-import s2
+# Use robust project root import pattern
+project_root = os.getcwd()
+sys.path.insert(0, project_root)
+
+try:
+    import s2
+except ImportError as e:
+    print(f"Error importing s2 module: {e}")
+    print(f"Project root path: {project_root}")
+    raise
 
 
 class TestS2Functions(unittest.TestCase):
