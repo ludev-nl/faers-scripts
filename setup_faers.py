@@ -128,7 +128,6 @@ def preprocess_file(input_path, output_path):
         return False
 
 def get_schema_for_period(schema_config, table_name, year, quarter):
-    """Get schema for a table and period."""
     table_schemas = schema_config.get(table_name.upper())
     if not table_schemas:
         raise ValueError(f"No schema found for table {table_name}")
@@ -143,6 +142,7 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
         if (start_year <= year <= end_year) and \
            (start_year < year or start_quarter <= quarter) and \
            (year < end_year or quarter <= end_quarter):
+            logger.info(f"Schema for {table_name} {target_date}: {schema_info['columns'].keys()}")
             return schema_info["columns"]
 
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
@@ -232,6 +232,20 @@ def list_files_in_gcs_directory(bucket_name, directory_path):
     except Exception as e:
         logger.error(f"Error listing GCS files: {e}")
         return []
+    
+def execute_sql_file(conn, sql_file):
+    logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
+    try:
+        with open(sql_file, "r", encoding="utf-8") as f:
+            sql = f.read()
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.commit()
+        logger.info(f"Executed SQL file {sql_file}")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error executing {sql_file}: {e}")
+        raise
 
 def main():
     """Main function to set up and load FAERS data."""
