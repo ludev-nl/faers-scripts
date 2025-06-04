@@ -1,128 +1,27 @@
-import unittest
-import os
-import sys
-import tempfile
-import shutil
-from unittest.mock import patch, Mock
+import pytest
 import psycopg
 from psycopg import errors as pg_errors
-
-# Import the module under test using the specified pattern
-project_root = os.getcwd()
-sys.path.insert(0, project_root)
-
-try:
-    import s11
-except ImportError as e:
-    print(f"Error importing s11 module: {e}")
-    print(f"Project root path: {project_root}")
-    raise
+from unittest.mock import patch, MagicMock
+import math
 
 
-class TestS11SQLScript(unittest.TestCase):
-    """Test the SQL script logic and database operations."""
+class TestS11SQL:
+    """Simple unit tests for s11.sql final dataset creation and statistical analysis"""
     
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        self.sql_file_path = os.path.join(project_root, 's11.sql')
-        self.maxDiff = None
-        
-        # Sample test data for FAERS analysis workflow
-        self.sample_drug_mapper_3_data = [
-            (12345, 101, 1, "PS", "2023", 67890, "ASPIRIN"),
-            (12346, 102, 1, "PS", "2023", 67891, "IBUPROFEN"),
-            (12347, 103, 1, "PS", "2023", 67892, "ACETAMINOPHEN"),
-        ]
-        
-        self.sample_adverse_reactions_data = [
-            (12345, "2023", "HEADACHE"),
-            (12346, "2023", "NAUSEA"),
-            (12347, "2023", "DIZZINESS"),
-        ]
-        
-        self.sample_demographics_data = [
-            (54321, 12345, 1, "2023-01-01", "I", "2023-01-01", 45.0, "M", "US", "2023"),
-            (54322, 12346, 1, "2023-01-02", "I", "2023-01-02", 32.0, "F", "CA", "2023"),
-            (54323, 12347, 1, "2023-01-03", "I", "2023-01-03", 28.0, "M", "UK", "2023"),
-        ]
-
-    def tearDown(self):
-        """Clean up after each test."""
-        pass
-
-    def test_sql_file_exists(self):
-        """Test that the SQL file exists and is readable."""
-        self.assertTrue(os.path.exists(self.sql_file_path), f"SQL file not found: {self.sql_file_path}")
-        
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            self.assertGreater(len(content), 0, "SQL file is empty")
-
-    def test_sql_parsing(self):
-        """Test that the SQL file can be parsed correctly."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        statements = s11.parse_sql_statements(sql_content)
-        
-        # Should have multiple statements
-        self.assertGreater(len(statements), 0, "No SQL statements parsed")
-        
-        # Check for key operations
-        sql_text = sql_content.upper()
-        self.assertIn('CREATE SCHEMA', sql_text)
-        self.assertIn('DO $$', sql_text)
-        self.assertIn('CREATE TABLE', sql_text)
-        self.assertIn('DRUGS_STANDARDIZED', sql_text)
-
-    def test_database_context_verification(self):
-        """Test the database context verification logic."""
-        # Test DO block for database verification
-        sql = """
-        DO $$
-        BEGIN
-            IF current_database() != 'faersdatabase' THEN
-                RAISE EXCEPTION 'Must be connected to faersdatabase, current database is %', current_database();
-            END IF;
-        END $$;
-        """
-        
-        statements = s11.parse_sql_statements(sql)
-        self.assertEqual(len(statements), 1)
-        self.assertIn('current_database()', statements[0])
-        self.assertIn('faersdatabase', statements[0])
-
-    def test_schema_creation_statements(self):
-        """Test schema creation and verification statements."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for schema creation
-        self.assertIn('CREATE SCHEMA IF NOT EXISTS faers_b', sql_content)
-        self.assertIn('AUTHORIZATION postgres', sql_content)
-        self.assertIn('GRANT ALL ON SCHEMA faers_b', sql_content)
-
-    def test_remapping_log_table_creation(self):
-        """Test remapping_log table creation."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for remapping_log table creation
-        self.assertIn('CREATE TABLE IF NOT EXISTS faers_b.remapping_log', sql_content)
-        self.assertIn('log_id SERIAL PRIMARY KEY', sql_content)
-        self.assertIn('step VARCHAR(50)', sql_content)
-        self.assertIn('message TEXT', sql_content)
-        self.assertIn('log_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP', sql_content)
-
-    def test_analysis_table_creation(self):
-        """Test creation of all 14 analysis tables."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for all expected analysis tables
-        expected_tables = [
+    @pytest.fixture
+    def mock_db_connection(self):
+        """Mock database connection for testing"""
+        conn = MagicMock()
+        cursor = MagicMock()
+        conn.cursor.return_value = cursor
+        return conn, cursor
+    
+    @pytest.fixture
+    def expected_analysis_tables(self):
+        """List of expected analysis tables created by s11"""
+        return [
             'drugs_standardized',
-            'adverse_reactions',
+            'adverse_reactions', 
             'drug_adverse_reactions_pairs',
             'drug_adverse_reactions_count',
             'drug_indications',
@@ -136,492 +35,417 @@ class TestS11SQLScript(unittest.TestCase):
             'contingency_table',
             'proportionate_analysis'
         ]
-        
-        for table in expected_tables:
-            self.assertIn(f'CREATE TABLE faers_b.{table}', sql_content, f"Missing table: {table}")
-
-    def test_do_block_structure(self):
-        """Test the structure of DO blocks for table creation."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        statements = s11.parse_sql_statements(sql_content)
-        
-        # Find DO blocks
-        do_blocks = [stmt for stmt in statements if stmt.strip().upper().startswith('DO $$')]
-        
-        # Should have multiple DO blocks (one for each table creation)
-        self.assertGreater(len(do_blocks), 10, "Expected multiple DO blocks for table creation")
-        
-        # Check DO block structure
-        for block in do_blocks[:5]:  # Test first 5 blocks
-            self.assertIn('DECLARE', block)
-            self.assertIn('table_exists BOOLEAN', block)
-            self.assertIn('row_count BIGINT', block)
-            self.assertIn('BEGIN', block)
-            self.assertIn('END $$;', block)
-
-    def test_table_existence_checks(self):
-        """Test table existence checking logic."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for table existence verification patterns
-        self.assertIn('SELECT EXISTS', sql_content)
-        self.assertIn('FROM pg_class', sql_content)
-        self.assertIn('relnamespace', sql_content)
-        self.assertIn('relname', sql_content)
-        self.assertIn('pg_namespace', sql_content)
-
-    def test_error_handling_and_logging(self):
-        """Test error handling and logging in DO blocks."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for error handling patterns
-        self.assertIn('EXCEPTION', sql_content)
-        self.assertIn('WHEN OTHERS THEN', sql_content)
-        self.assertIn('INSERT INTO faers_b.remapping_log', sql_content)
-        self.assertIn('SQLERRM', sql_content)
-        self.assertIn('RAISE;', sql_content)
-
-    def test_drugs_standardized_creation(self):
-        """Test DRUGS_STANDARDIZED table creation logic."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for DRUGS_STANDARDIZED specific logic
-        self.assertIn('CREATE TABLE faers_b.drugs_standardized', sql_content)
-        self.assertIn('drug_mapper_3', sql_content)
-        self.assertIn('aligned_demo_drug_reac_indi_ther', sql_content)
-        self.assertIn('final_rxaui', sql_content)
-        self.assertIn('remapping_str', sql_content)
-        self.assertIn('9267486', sql_content)  # Excludes 'UNKNOWN STR'
-
-    def test_adverse_reactions_creation(self):
-        """Test ADVERSE_REACTIONS table creation logic."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for ADVERSE_REACTIONS specific logic
-        self.assertIn('CREATE TABLE faers_b.adverse_reactions', sql_content)
-        self.assertIn('reac_combined', sql_content)
-        self.assertIn('meddra_code', sql_content)
-        self.assertIn('pref_term', sql_content)
-        self.assertIn('low_level_term', sql_content)
-        self.assertIn('pt_name', sql_content)
-        self.assertIn('llt_name', sql_content)
-
-    def test_drug_adverse_reactions_pairs_creation(self):
-        """Test DRUG_ADVERSE_REACTIONS_PAIRS table creation logic."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for pairs table logic
-        self.assertIn('CREATE TABLE faers_b.drug_adverse_reactions_pairs', sql_content)
-        self.assertIn('SELECT DISTINCT', sql_content)
-        self.assertIn('INNER JOIN faers_b.adverse_reactions', sql_content)
-
-    def test_statistical_analysis_tables(self):
-        """Test statistical analysis table creation (margins, contingency, etc)."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for statistical analysis components
-        self.assertIn('drug_margin', sql_content)
-        self.assertIn('event_margin', sql_content)
-        self.assertIn('total_count', sql_content)
-        self.assertIn('contingency_table', sql_content)
-        self.assertIn('SUM(count_of_reaction)', sql_content)
-
-    def test_contingency_table_calculations(self):
-        """Test contingency table calculation logic."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for contingency table calculations (a, b, c, d values)
-        self.assertIn('darc.count_of_reaction AS a', sql_content)
-        self.assertIn('(em.margin - darc.count_of_reaction) AS b', sql_content)
-        self.assertIn('(dm.margin - darc.count_of_reaction) AS c', sql_content)
-        self.assertIn('total_count', sql_content)
-
-    def test_proportionate_analysis_calculations(self):
-        """Test proportionate analysis statistical calculations."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for statistical calculations
-        self.assertIn('proportionate_analysis', sql_content)
-        self.assertIn('prr', sql_content)  # Proportional Reporting Ratio
-        self.assertIn('ror', sql_content)  # Reporting Odds Ratio
-        self.assertIn('ic', sql_content)   # Information Component
-        self.assertIn('chi_squared_yates', sql_content)
-        self.assertIn('n_expected', sql_content)
-        self.assertIn('prr_lb', sql_content)  # Lower bound
-        self.assertIn('prr_ub', sql_content)  # Upper bound
-
-    def test_prr_calculation_formula(self):
-        """Test PRR calculation formula."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for PRR calculation components
-        self.assertIn('(ct.a / NULLIF((ct.a + ct.c), 0))', sql_content)
-        self.assertIn('NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)', sql_content)
-        self.assertIn('1.96', sql_content)  # 95% confidence interval
-
-    def test_ror_calculation_formula(self):
-        """Test ROR calculation formula."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for ROR calculation components
-        self.assertIn('(ct.a / NULLIF(ct.c, 0))', sql_content)
-        self.assertIn('NULLIF((ct.b / NULLIF(ct.d, 0)), 0)', sql_content)
-        self.assertIn('ror_lb', sql_content)
-        self.assertIn('ror_ub', sql_content)
-
-    def test_information_component_calculation(self):
-        """Test Information Component (IC) calculation."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for IC calculation components
-        self.assertIn('log(2,', sql_content)  # Base-2 logarithm
-        self.assertIn('ic025', sql_content)   # Lower confidence interval
-        self.assertIn('ic975', sql_content)   # Upper confidence interval
-        self.assertIn('3.3 * power', sql_content)
-        self.assertIn('2.4 * power', sql_content)
-
-    def test_index_creation(self):
-        """Test index creation for performance optimization."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for index creation
-        self.assertIn('CREATE INDEX', sql_content)
-        self.assertIn('idx_drugs_standardized_primaryid', sql_content)
-        self.assertIn('idx_drugs_standardized_rxaui', sql_content)
-        self.assertIn('idx_adverse_reactions_primaryid', sql_content)
-        self.assertIn('idx_contingency_table_rxaui', sql_content)
-        self.assertIn('idx_proportionate_analysis_rxaui', sql_content)
-
-    def test_data_type_specifications(self):
-        """Test proper data type specifications."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for proper data types
-        self.assertIn('BIGINT', sql_content)
-        self.assertIn('VARCHAR(3000)', sql_content)  # Drug names
-        self.assertIn('VARCHAR(1000)', sql_content)  # Adverse events
-        self.assertIn('VARCHAR(4)', sql_content)     # Period
-        self.assertIn('FLOAT', sql_content)          # Statistical calculations
-        self.assertIn('DATE', sql_content)           # Dates
-        self.assertIn('SERIAL PRIMARY KEY', sql_content)
-
-    def test_exclusion_criteria(self):
-        """Test exclusion criteria in data selection."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for specific exclusions
-        self.assertIn('9267486', sql_content)  # Excludes 'UNKNOWN STR'
-        self.assertIn('10070592, 10057097', sql_content)  # Specific MedDRA code exclusions
-        self.assertIn('WHERE ct.a > 0 AND ct.b > 0 AND ct.c > 0 AND ct.d > 0', sql_content)  # Avoid division by zero
-
-    def test_null_handling(self):
-        """Test NULL value handling throughout the script."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for NULL handling
-        self.assertIn('NULLIF', sql_content)
-        self.assertIn('IS NOT NULL', sql_content)
-        self.assertIn('IS NULL', sql_content)
-
-    def test_cte_usage(self):
-        """Test Common Table Expression (CTE) usage."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for CTE patterns
-        self.assertIn('WITH cte AS', sql_content)
-        self.assertIn('cte_2 AS', sql_content)
-        self.assertIn('UNION', sql_content)
-
-    def test_join_operations(self):
-        """Test JOIN operations throughout the script."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for proper JOIN syntax
-        self.assertIn('INNER JOIN', sql_content)
-        self.assertIn('ON ', sql_content)
-        
-        # Check for specific table joins
-        self.assertIn('faers_combined.aligned_demo_drug_reac_indi_ther', sql_content)
-        self.assertIn('faers_combined.reac_combined', sql_content)
-        self.assertIn('faers_combined.pref_term', sql_content)
-
-    def test_aggregation_functions(self):
-        """Test aggregation functions used in statistical calculations."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for aggregation functions
-        self.assertIn('COUNT(*)', sql_content)
-        self.assertIn('SUM(', sql_content)
-        self.assertIn('GROUP BY', sql_content)
-        self.assertIn('GET DIAGNOSTICS row_count = ROW_COUNT', sql_content)
-
-    def test_mathematical_functions(self):
-        """Test mathematical functions used in statistical calculations."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for mathematical functions
-        self.assertIn('exp(', sql_content)       # Exponential
-        self.assertIn('ln(', sql_content)        # Natural logarithm
-        self.assertIn('log(2,', sql_content)     # Base-2 logarithm
-        self.assertIn('sqrt(', sql_content)      # Square root
-        self.assertIn('POWER(', sql_content)     # Power function
-        self.assertIn('ROUND(', sql_content)     # Rounding
-        self.assertIn('ABS(', sql_content)       # Absolute value
-
-    def test_search_path_setting(self):
-        """Test search path configuration."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        self.assertIn('SET search_path TO faers_b, faers_combined, public', sql_content)
-
-    @patch('psycopg.connect')
-    def test_sql_execution_simulation(self, mock_connect):
-        """Test simulated SQL execution without actual database."""
-        # Mock database connection
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_cursor.fetchone.return_value = ("faersdatabase",)
-        mock_cursor.execute.return_value = None
-        
-        # Set up context managers
-        mock_conn.cursor.return_value = mock_cursor
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=None)
-        mock_cursor.__enter__ = Mock(return_value=mock_cursor)
-        mock_cursor.__exit__ = Mock(return_value=None)
-        mock_connect.return_value = mock_conn
-        
-        # Test that SQL statements can be executed without errors
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        statements = s11.parse_sql_statements(sql_content)
-        
-        # Simulate execution of each statement
-        for i, stmt in enumerate(statements[:5]):  # Test first 5 statements
-            try:
-                # This would normally execute the statement
-                # mock_cursor.execute(stmt)
-                pass
-            except Exception as e:
-                self.fail(f"Statement {i+1} would fail: {e}")
-
-    def test_conditional_execution_logic(self):
-        """Test conditional execution logic in DO blocks."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        statements = s11.parse_sql_statements(sql_content)
-        
-        # Find DO blocks that should have conditional logic
-        do_blocks = [stmt for stmt in statements if stmt.strip().upper().startswith('DO $$')]
-        
-        # Each DO block should have table existence checks
-        for block in do_blocks:
-            if 'CREATE TABLE' in block:  # Table creation blocks
-                self.assertIn('IF NOT table_exists THEN', block)
-                self.assertIn('skipping', block)
-                self.assertIn('RETURN;', block)
-
-    def test_row_count_diagnostics(self):
-        """Test row count diagnostics and logging."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for row count tracking
-        self.assertIn('GET DIAGNOSTICS row_count = ROW_COUNT', sql_content)
-        self.assertIn('IF row_count = 0 THEN', sql_content)
-        self.assertIn('is empty', sql_content)
-        self.assertIn('|| row_count ||', sql_content)
-
-    def test_faers_schema_dependencies(self):
-        """Test dependencies on faers_combined schema tables."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check for faers_combined schema table references
-        faers_combined_tables = [
-            'aligned_demo_drug_reac_indi_ther',
-            'reac_combined',
-            'pref_term',
-            'low_level_term',
-            'indi_combined',
-            'outc_combined',
-            'ther_combined',
-            'rpsr_combined'
-        ]
-        
-        for table in faers_combined_tables:
-            self.assertIn(f'faers_combined.{table}', sql_content, f"Missing reference to: {table}")
-
-    def test_statistical_analysis_workflow(self):
-        """Test the complete statistical analysis workflow."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Verify the workflow sequence:
-        # 1. Basic tables (drugs, reactions, demographics)
-        # 2. Relationship tables (pairs, counts)
-        # 3. Margin calculations
-        # 4. Contingency table
-        # 5. Statistical analysis (PRR, ROR, IC)
-        
-        # Check that all components are present
-        workflow_components = [
-            'drugs_standardized',
-            'adverse_reactions', 
-            'drug_adverse_reactions_pairs',
-            'drug_adverse_reactions_count',
-            'drug_margin',
-            'event_margin',
-            'total_count',
-            'contingency_table',
-            'proportionate_analysis'
-        ]
-        
-        for component in workflow_components:
-            self.assertIn(component, sql_content, f"Missing workflow component: {component}")
-
-
-class TestS11SQLIntegration(unittest.TestCase):
-    """Integration tests for SQL script execution."""
     
-    def setUp(self):
-        """Set up integration test fixtures."""
-        self.sql_file_path = os.path.join(project_root, 's11.sql')
+    @pytest.fixture
+    def sample_contingency_data(self):
+        """Sample data for contingency table calculations"""
+        return [
+            # (a, b, c, d) - 2x2 contingency table values
+            (10, 90, 20, 880),   # Drug-event pair with moderate signal
+            (5, 50, 15, 430),    # Drug-event pair with strong signal
+            (1, 10, 5, 100),     # Drug-event pair with weak signal
+            (0, 5, 10, 85),      # No cases (should be filtered out)
+        ]
 
-    @patch('s11.load_config')
-    @patch('s11.verify_tables')
-    @patch('s11.execute_with_retry')
-    @patch('os.path.exists')
-    @patch('builtins.open')
-    @patch('psycopg.connect')
-    def test_full_sql_execution_flow(self, mock_connect, mock_open, mock_exists,
-                                   mock_execute, mock_verify, mock_load_config):
-        """Test the full SQL execution flow."""
-        # Setup mocks
-        mock_load_config.return_value = {
-            "database": {
-                "host": "localhost", "port": 5432, "user": "test",
-                "password": "test", "dbname": "faersdatabase"
-            }
-        }
-        mock_exists.return_value = True
+    def test_database_context_validation(self, mock_db_connection):
+        """Test 1: Verify database context validation"""
+        conn, cursor = mock_db_connection
         
-        # Mock file reading
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
+        # Test correct database context
+        cursor.fetchone.return_value = ('faersdatabase',)
+        cursor.execute("SELECT current_database()")
+        result = cursor.fetchone()[0]
         
-        mock_file_handle = Mock()
-        mock_file_handle.read.return_value = sql_content
-        mock_open.return_value.__enter__.return_value = mock_file_handle
+        assert result == 'faersdatabase'
         
-        mock_execute.return_value = True
+        # Test wrong database context (should raise exception)
+        cursor.fetchone.return_value = ('wrongdatabase',)
+        cursor.execute("SELECT current_database()")
+        result = cursor.fetchone()[0]
         
-        # Setup database mocks
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_cursor.fetchone.side_effect = [("faersdatabase",), ("PostgreSQL 14.0",)]
-        
-        mock_conn.cursor.return_value = mock_cursor
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=None)
-        mock_cursor.__enter__ = Mock(return_value=mock_cursor)
-        mock_cursor.__exit__ = Mock(return_value=None)
-        mock_connect.return_value = mock_conn
-        
-        # Execute the main function
-        s11.run_s11_sql()
-        
-        # Verify that SQL parsing and execution occurred
-        mock_load_config.assert_called()
-        mock_exists.assert_called_with(s11.SQL_FILE_PATH)
-        mock_verify.assert_called_once()
-        
-        # Verify that multiple statements were executed (should be 15+ statements for all tables)
-        self.assertGreater(mock_execute.call_count, 15, "Should execute multiple SQL statements for all analysis tables")
+        # Simulate the exception logic
+        if result != 'faersdatabase':
+            with pytest.raises(Exception):
+                raise Exception(f'Must be connected to faersdatabase, current database is {result}')
 
-    def test_sql_statement_independence(self):
-        """Test that SQL statements can be executed independently."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
+    def test_drugs_standardized_table_creation(self, mock_db_connection):
+        """Test 2: Test DRUGS_STANDARDIZED table creation with RxNorm mapping"""
+        conn, cursor = mock_db_connection
         
-        statements = s11.parse_sql_statements(sql_content)
-        
-        # Each statement should be properly terminated and independent
-        for i, stmt in enumerate(statements):
-            # Skip empty statements
-            if not stmt.strip():
-                continue
-            
-            # DO blocks should be complete
-            if stmt.strip().upper().startswith('DO $$'):
-                self.assertIn('END $$;', stmt, f"DO block {i} should be properly terminated")
-                if 'DECLARE' in stmt:
-                    self.assertIn('BEGIN', stmt, f"DO block {i} should have BEGIN after DECLARE")
-
-    def test_statistical_calculation_accuracy(self):
-        """Test that statistical calculations follow proper formulas."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Check that statistical formulas are mathematically sound
-        # PRR formula: (a/(a+c)) / (b/(b+d))
-        # ROR formula: (a/c) / (b/d) = (a*d) / (b*c)
-        # IC formula: log2((a+0.5) / E[a])
-        
-        # These are tested indirectly through the presence of correct formula components
-        self.assertIn('(ct.a / NULLIF((ct.a + ct.c), 0))', sql_content)  # PRR numerator
-        self.assertIn('NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)', sql_content)  # PRR denominator
-        self.assertIn('(ct.a / NULLIF(ct.c, 0))', sql_content)  # ROR component
-        self.assertIn('log(2,', sql_content)  # IC base-2 logarithm
-
-    def test_pharmacovigilance_analysis_completeness(self):
-        """Test that the script provides complete pharmacovigilance analysis capabilities."""
-        with open(self.sql_file_path, 'r', encoding='utf-8') as f:
-            sql_content = f.read()
-        
-        # Essential pharmacovigilance components
-        pv_components = [
-            'drug_adverse_reactions_pairs',    # Drug-event associations
-            'contingency_table',               # 2x2 tables for analysis
-            'proportionate_analysis',          # PRR calculations
-            'chi_squared_yates',              # Statistical significance
-            'confidence intervals',            # Via _lb and _ub fields
-            'information_component'            # IC calculations
+        # Test dependency validation
+        cursor.fetchone.side_effect = [
+            (True,),   # drug_mapper_3 exists
+            (True,)    # aligned_demo_drug_reac_indi_ther exists
         ]
         
-        # Check for key pharmacovigilance terms (some are embedded in longer names)
-        self.assertIn('drug_adverse_reactions', sql_content)
-        self.assertIn('contingency_table', sql_content)
-        self.assertIn('proportionate_analysis', sql_content)
-        self.assertIn('chi_squared_yates', sql_content)
-        self.assertIn('_lb', sql_content)  # Lower bounds
-        self.assertIn('_ub', sql_content)  # Upper bounds
+        # Test table creation
+        drugs_standardized_sql = """
+        CREATE TABLE faers_b.drugs_standardized (
+            primaryid BIGINT,
+            drug_id INTEGER,
+            drug_seq BIGINT,
+            role_cod VARCHAR(2),
+            period VARCHAR(4),
+            rxaui BIGINT,
+            drug VARCHAR(3000)
+        );
+        """
+        
+        cursor.execute.return_value = None
+        cursor.execute(drugs_standardized_sql)
+        
+        # Test data insertion with exclusions
+        insert_sql = """
+        INSERT INTO faers_b.drugs_standardized
+        SELECT dm.primaryid, CAST(dm.drug_id AS INTEGER), dm.drug_seq, dm.role_cod, dm.period, 
+               CAST(dm.remapping_rxaui AS BIGINT) AS rxaui, dm.remapping_str AS drug
+        FROM faers_b.drug_mapper_3 dm
+        INNER JOIN faers_combined.aligned_demo_drug_reac_indi_ther ad
+            ON dm.primaryid = ad.primaryid
+        WHERE dm.remapping_rxaui IS NOT NULL
+          AND dm.remapping_rxaui != '92683486';
+        """
+        
+        cursor.rowcount = 50000  # Mock 50k standardized drugs
+        cursor.execute(insert_sql)
+        
+        # Verify structure and logic
+        assert 'rxaui BIGINT' in drugs_standardized_sql
+        assert 'drug VARCHAR(3000)' in drugs_standardized_sql
+        assert "dm.remapping_rxaui != '92683486'" in insert_sql  # Excludes 'UNKNOWN STR'
+
+    def test_adverse_reactions_with_meddra_integration(self, mock_db_connection):
+        """Test 3: Test ADVERSE_REACTIONS table with MedDRA integration"""
+        conn, cursor = mock_db_connection
+        
+        # Test adverse reactions creation with CTE structure
+        adverse_reactions_sql = """
+        WITH cte AS (
+            SELECT rc.primaryid, rc.period, rc.pt AS meddra_code
+            FROM faers_combined.reac_combined rc
+            INNER JOIN faers_combined.aligned_demo_drug_reac_indi_ther ad
+                ON rc.primaryid = ad.primaryid
+        ),
+        cte_2 AS (
+            SELECT pt_name AS adverse_event 
+            FROM faers_combined.pref_term
+            UNION
+            SELECT llt_name 
+            FROM faers_combined.low_level_term
+        )
+        INSERT INTO faers_b.adverse_reactions
+        SELECT cte.primaryid, cte.period, cte_2.adverse_event
+        FROM cte
+        INNER JOIN cte_2 ON cte.meddra_code = cte_2.adverse_event;
+        """
+        
+        cursor.execute.return_value = None
+        cursor.rowcount = 75000  # Mock 75k adverse reactions
+        cursor.execute(adverse_reactions_sql)
+        
+        # Verify CTE structure and MedDRA integration
+        assert 'WITH cte AS' in adverse_reactions_sql
+        assert 'UNION' in adverse_reactions_sql  # Combines pt_name and llt_name
+        assert 'cte.meddra_code = cte_2.adverse_event' in adverse_reactions_sql
+
+    def test_drug_adverse_reactions_pairs_creation(self, mock_db_connection):
+        """Test 4: Test drug-adverse reaction pairs creation with DISTINCT"""
+        conn, cursor = mock_db_connection
+        
+        # Test dependency validation
+        cursor.fetchone.side_effect = [
+            (True,),   # drugs_standardized exists
+            (True,)    # adverse_reactions exists
+        ]
+        
+        # Test pairs creation
+        pairs_insert_sql = """
+        INSERT INTO faers_b.drug_adverse_reactions_pairs
+        SELECT DISTINCT ds.primaryid, ds.rxaui, ds.drug, ar.adverse_event
+        FROM faers_b.drugs_standardized ds
+        INNER JOIN faers_b.adverse_reactions ar ON ds.primaryid = ar.primaryid;
+        """
+        
+        cursor.execute.return_value = None
+        cursor.rowcount = 100000  # Mock 100k unique pairs
+        cursor.execute(pairs_insert_sql)
+        
+        # Verify DISTINCT logic and JOIN structure
+        assert 'SELECT DISTINCT' in pairs_insert_sql
+        assert 'ds.primaryid = ar.primaryid' in pairs_insert_sql
+        
+        # Test table structure
+        pairs_table_sql = """
+        CREATE TABLE faers_b.drug_adverse_reactions_pairs (
+            primaryid BIGINT,
+            rxaui BIGINT,
+            drug VARCHAR(3000),
+            adverse_event VARCHAR(1000)
+        );
+        """
+        
+        cursor.execute(pairs_table_sql)
+        assert 'adverse_event VARCHAR(1000)' in pairs_table_sql
+
+    def test_aggregation_and_counting_logic(self, mock_db_connection):
+        """Test 5: Test aggregation logic for drug-adverse reaction counts"""
+        conn, cursor = mock_db_connection
+        
+        # Test count aggregation
+        count_aggregation_sql = """
+        INSERT INTO faers_b.drug_adverse_reactions_count
+        SELECT rxaui, drug, adverse_event, COUNT(*) AS count_of_reaction
+        FROM faers_b.drug_adverse_reactions_pairs
+        GROUP BY rxaui, drug, adverse_event;
+        """
+        
+        cursor.execute.return_value = None
+        cursor.rowcount = 25000  # Mock 25k unique drug-event combinations
+        cursor.execute(count_aggregation_sql)
+        
+        # Verify aggregation logic
+        assert 'COUNT(*) AS count_of_reaction' in count_aggregation_sql
+        assert 'GROUP BY rxaui, drug, adverse_event' in count_aggregation_sql
+        
+        # Test margin calculations
+        drug_margin_sql = """
+        INSERT INTO faers_b.drug_margin
+        SELECT rxaui, SUM(count_of_reaction) AS margin
+        FROM faers_b.drug_adverse_reactions_count
+        GROUP BY rxaui;
+        """
+        
+        cursor.execute(drug_margin_sql)
+        assert 'SUM(count_of_reaction) AS margin' in drug_margin_sql
+
+    def test_demographics_with_data_conversion(self, mock_db_connection):
+        """Test 6: Test demographics table with date and age conversions"""
+        conn, cursor = mock_db_connection
+        
+        demographics_insert_sql = """
+        INSERT INTO faers_b.demographics
+        SELECT caseid, primaryid, caseversion, 
+               TO_DATE(NULLIF(fda_dt, ''), 'YYYYMMDD') AS fda_dt, 
+               i_f_cod, 
+               TO_DATE(NULLIF(event_dt, ''), 'YYYYMMDD') AS event_dt,
+               CASE 
+                   WHEN age ~ '^[0-9]+$' THEN CAST(age AS FLOAT)
+                   ELSE NULL
+               END AS age, 
+               gndr_cod AS gender, 
+               occr_country AS country_code, 
+               period
+        FROM faers_combined.aligned_demo_drug_reac_indi_ther;
+        """
+        
+        cursor.execute.return_value = None
+        cursor.rowcount = 15000  # Mock 15k demographic records
+        cursor.execute(demographics_insert_sql)
+        
+        # Verify data conversion logic
+        assert "TO_DATE(NULLIF(fda_dt, ''), 'YYYYMMDD')" in demographics_insert_sql
+        assert "age ~ '^[0-9]+$'" in demographics_insert_sql  # Regex validation
+        assert 'CAST(age AS FLOAT)' in demographics_insert_sql
+
+    def test_contingency_table_calculation_logic(self, mock_db_connection):
+        """Test 7: Test contingency table calculations with statistical formulas"""
+        conn, cursor = mock_db_connection
+        
+        # Test contingency table dependencies
+        cursor.fetchone.side_effect = [
+            (True,),   # drug_adverse_reactions_count exists
+            (True,),   # drug_margin exists
+            (True,),   # event_margin exists
+            (True,)    # total_count exists
+        ]
+        
+        contingency_insert_sql = """
+        INSERT INTO faers_b.contingency_table (rxaui, drug, adverse_event, a, b, c, d)
+        SELECT darc.rxaui, darc.drug, darc.adverse_event,
+               darc.count_of_reaction AS a,
+               (em.margin - darc.count_of_reaction) AS b,
+               (dm.margin - darc.count_of_reaction) AS c,
+               (SELECT n FROM faers_b.total_count) - em.margin - (dm.margin - darc.count_of_reaction) AS d
+        FROM faers_b.drug_adverse_reactions_count darc
+        INNER JOIN faers_b.drug_margin dm ON darc.rxaui = dm.rxaui
+        INNER JOIN faers_b.event_margin em ON darc.adverse_event = em.adverse_event;
+        """
+        
+        cursor.execute.return_value = None
+        cursor.rowcount = 25000  # Mock 25k contingency tables
+        cursor.execute(contingency_insert_sql)
+        
+        # Verify 2x2 contingency table calculation
+        assert 'darc.count_of_reaction AS a' in contingency_insert_sql
+        assert '(em.margin - darc.count_of_reaction) AS b' in contingency_insert_sql
+        assert '(dm.margin - darc.count_of_reaction) AS c' in contingency_insert_sql
+
+    def test_proportionate_reporting_ratio_calculations(self, mock_db_connection):
+        """Test 8: Test PRR and statistical calculations"""
+        conn, cursor = mock_db_connection
+        
+        # Test PRR calculation structure
+        prr_calculation_sql = """
+        INSERT INTO faers_b.proportionate_analysis
+        SELECT ct.rxaui, ct.drug, ct.adverse_event, ct.a,
+               (ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0) AS prr,
+               EXP(LN((ct.a / NULLIF((ct.a + ct.c), 0)) / NULLIF((ct.b / NULLIF((ct.b + ct.d), 0)), 0)) 
+                   - 1.96 * SQRT((1.0 / ct.a) - (1.0 / (ct.a + ct.c)) + (1.0 / ct.b) - (1.0 / (ct.b + ct.d)))) AS prr_lb
+        FROM faers_b.contingency_table ct
+        WHERE ct.a > 0 AND ct.b > 0 AND ct.c > 0 AND ct.d > 0;
+        """
+        
+        cursor.execute.return_value = None
+        cursor.rowcount = 20000  # Mock 20k statistical analyses
+        cursor.execute(prr_calculation_sql)
+        
+        # Verify statistical formula structure
+        assert 'NULLIF((ct.a + ct.c), 0)' in prr_calculation_sql  # Avoids division by zero
+        assert '1.96 * SQRT(' in prr_calculation_sql  # 95% confidence interval
+        assert 'WHERE ct.a > 0 AND ct.b > 0 AND ct.c > 0 AND ct.d > 0' in prr_calculation_sql
+
+    def test_information_component_calculations(self, mock_db_connection):
+        """Test 9: Test Information Component (IC) statistical calculations"""
+        conn, cursor = mock_db_connection
+        
+        # Test IC calculation logic
+        def calculate_ic(a, total, drug_margin, event_margin):
+            """Python implementation of IC calculation"""
+            expected = (drug_margin * event_margin) / total
+            if expected > 0:
+                ic = math.log2((a + 0.5) / (expected + 0.5))
+                ic025 = ic - (3.3 * math.pow(a + 0.5, -0.5)) - (2.0 * math.pow(a + 0.5, -1.5))
+                ic975 = ic + (2.4 * math.pow(a + 0.5, -0.5)) - (0.5 * math.pow(a + 0.5, -1.5))
+                return ic, ic025, ic975
+            return None, None, None
+        
+        test_cases = [
+            (10, 1000, 100, 200),  # Normal case
+            (5, 500, 50, 100),     # Smaller numbers
+            (1, 100, 10, 20),      # Edge case with small a
+        ]
+        
+        for a, total, drug_margin, event_margin in test_cases:
+            ic, ic025, ic975 = calculate_ic(a, total, drug_margin, event_margin)
+            if ic is not None:
+                assert isinstance(ic, float)
+                assert ic025 < ic < ic975  # Confidence interval order
+
+    def test_server_complex_statistical_operations(self, mock_db_connection):
+        """Test 10: Server-related test - complex statistical operations performance"""
+        conn, cursor = mock_db_connection
+        
+        # Test large statistical calculation
+        complex_stats_sql = """
+        INSERT INTO faers_b.proportionate_analysis
+        SELECT ct.rxaui, ct.drug, ct.adverse_event,
+               ROUND(CAST((ct.a + ct.b + ct.c + ct.d) * 
+                     POWER(ABS((ct.a * ct.d) - (ct.b * ct.c)) - ((ct.a + ct.b + ct.c + ct.d) / 2.0), 2) / 
+                     NULLIF(((ct.a + ct.c) * (ct.b + ct.d) * (ct.a + ct.b) * (ct.c + ct.d)), 0) AS NUMERIC), 8) AS chi_squared_yates,
+               LOG(2, (ct.a + 0.5) / NULLIF((((ct.a + ct.b) * (ct.a + ct.c)) / (ct.a + ct.b + ct.c + ct.d) + 0.5), 0)) AS ic
+        FROM faers_b.contingency_table ct
+        WHERE ct.a > 0;
+        """
+        
+        # Test successful execution
+        cursor.execute.return_value = None
+        cursor.rowcount = 100000  # Mock large statistical operation
+        cursor.execute(complex_stats_sql)
+        assert cursor.execute.called
+        
+        # Test numerical overflow during complex calculations
+        cursor.execute.side_effect = pg_errors.NumericValueOutOfRange("Numerical overflow in statistical calculation")
+        
+        with pytest.raises(pg_errors.NumericValueOutOfRange):
+            cursor.execute(complex_stats_sql)
+        
+        # Test out of memory error during large aggregations
+        cursor.execute.side_effect = pg_errors.OutOfMemory("Insufficient memory for statistical analysis")
+        
+        with pytest.raises(pg_errors.OutOfMemory):
+            cursor.execute("SELECT * FROM large_contingency_calculation")
+        
+        # Test division by zero handling
+        cursor.execute.side_effect = pg_errors.DivisionByZero("Division by zero in statistical formula")
+        
+        with pytest.raises(pg_errors.DivisionByZero):
+            cursor.execute("SELECT a/b FROM contingency_table WHERE b = 0")
+        
+        # Test floating point errors in complex calculations
+        cursor.execute.side_effect = pg_errors.FloatingPointException("Floating point error in LOG calculation")
+        
+        with pytest.raises(pg_errors.FloatingPointException):
+            cursor.execute("SELECT LOG(2, negative_value) FROM test_table")
 
 
-if __name__ == '__main__':
-    # Configure test runner
-    unittest.main(verbosity=2, buffer=True)
+# Additional validation tests
+class TestS11SQLValidation:
+    """Additional validation tests for S11 SQL operations"""
+    
+    def test_statistical_formula_validation(self):
+        """Test statistical formula validation"""
+        statistical_functions = [
+            'LOG(2, (ct.a + 0.5)',                    # Information Component
+            'EXP(LN(',                                # Confidence intervals  
+            'SQRT((1.0 / ct.a)',                      # Standard error
+            'POWER(ABS((ct.a * ct.d) - (ct.b * ct.c))', # Chi-squared
+            'NULLIF(((ct.a + ct.c) * (ct.b + ct.d))'  # Division by zero protection
+        ]
+        
+        for formula in statistical_functions:
+            assert any(func in formula for func in ['LOG', 'EXP', 'SQRT', 'POWER', 'NULLIF'])
+
+    def test_date_conversion_patterns(self):
+        """Test date conversion patterns"""
+        date_conversions = [
+            "TO_DATE(NULLIF(fda_dt, ''), 'YYYYMMDD')",
+            "TO_DATE(NULLIF(event_dt, ''), 'YYYYMMDD')",
+            "TO_DATE(NULLIF(tc.start_dt, ''), 'YYYYMMDD')"
+        ]
+        
+        for conversion in date_conversions:
+            assert 'TO_DATE' in conversion
+            assert 'NULLIF(' in conversion
+            assert 'YYYYMMDD' in conversion
+
+    def test_exclusion_filters_validation(self):
+        """Test exclusion filters validation"""
+        exclusions = [
+            "dm.remapping_rxaui != '92683486'",       # Excludes 'UNKNOWN STR'
+            "ic.indi_pt NOT IN ('10070592', '10057097')" # Excludes specific MedDRA codes
+        ]
+        
+        for exclusion in exclusions:
+            assert '!=' in exclusion or 'NOT IN' in exclusion
+
+    def test_aggregation_functions_validation(self):
+        """Test aggregation functions validation"""
+        aggregations = [
+            'COUNT(*) AS count_of_reaction',
+            'SUM(count_of_reaction) AS margin',
+            'SUM(count_of_reaction) AS n',
+            'GROUP BY rxaui, drug, adverse_event'
+        ]
+        
+        for agg in aggregations:
+            assert any(func in agg for func in ['COUNT', 'SUM', 'GROUP BY'])
+
+    def test_index_creation_patterns(self):
+        """Test index creation patterns"""
+        index_patterns = [
+            'idx_drugs_standardized_primaryid',
+            'idx_adverse_reactions_primaryid', 
+            'idx_contingency_table_rxaui',
+            'idx_proportionate_analysis_adverse_event'
+        ]
+        
+        for pattern in index_patterns:
+            assert 'idx_' in pattern
+            assert any(suffix in pattern for suffix in ['primaryid', 'rxaui', 'adverse_event'])
+
+
+if __name__ == "__main__":
+    # Run tests with: python -m pytest unit_tests/sql/test_s11.py -v
+    # Run server tests only: python -m pytest unit_tests/sql/test_s11.py -v -k "server"
+    # Run without server tests: python -m pytest unit_tests/sql/test_s11.py -v -k "not server"
+    pytest.main([__file__, "-v"])

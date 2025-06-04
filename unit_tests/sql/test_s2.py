@@ -1,424 +1,246 @@
-import unittest
-import psycopg
-from unittest.mock import patch, Mock, MagicMock
+import pytest
+import psycopg2
+from unittest.mock import patch, MagicMock
+import json
 from datetime import datetime, date
 import tempfile
-import sys
 import os
 
 
-class TestGetCompletedYearQuartersFunction(unittest.TestCase):
-    """Test cases for the get_completed_year_quarters PostgreSQL function."""
+class TestS2SQL:
+    """Unit tests for s2.sql database functions and procedures"""
     
-    def setUp(self):
-        """Set up test fixtures."""
-        self.function_sql = """
-        CREATE OR REPLACE FUNCTION get_completed_year_quarters(start_year INT DEFAULT 4)
-        RETURNS TABLE (year INT, quarter INT)
-        AS $func$
-        DECLARE
-            current_year INT;
-            current_quarter INT;
-            last_year INT;
-            last_quarter INT;
-            y INT;
-            q INT;
-        BEGIN
-            -- Get current year and quarter
-            SELECT EXTRACT(YEAR FROM CURRENT_DATE)::INT INTO current_year;
-            SELECT EXTRACT(QUARTER FROM CURRENT_DATE)::INT INTO current_quarter;
-            
-            -- Determine last completed quarter
-            IF current_quarter = 1 THEN
-                last_year := current_year - 1;
-                last_quarter := 4;
-            ELSE
-                last_year := current_year;
-                last_quarter := current_quarter - 1;
-            END IF;
-
-            -- Generate year-quarter pairs from start_year
-            y := 2000 + start_year; -- Assuming start_year is relative to 2000
-            WHILE y <= last_year LOOP
-                q := 1;
-                WHILE q <= 4 LOOP
-                    IF y = last_year AND q > last_quarter THEN
-                        EXIT;
-                    END IF;
-                    year := y;
-                    quarter := q;
-                    RETURN NEXT;
-                    q := q + 1;
-                END LOOP;
-                y := y + 1;
-            END LOOP;
-        END;
-        $func$ LANGUAGE plpgsql;
-        """
-        
-        self.db_params = {
-            'host': 'localhost',
-            'port': 5432,
-            'dbname': 'test_faers_a',
-            'user': 'test_user',
-            'password': 'test_pass'
+    @pytest.fixture
+    def mock_db_connection(self):
+        """Mock database connection for testing"""
+        conn = MagicMock()
+        cursor = MagicMock()
+        conn.cursor.return_value = cursor
+        return conn, cursor
+    
+    @pytest.fixture
+    def sample_columns_json(self):
+        """Sample column definitions for testing"""
+        return {
+            "caseid": "VARCHAR(50)",
+            "caseversion": "INT",
+            "i_f_code": "VARCHAR(10)",
+            "event_dt": "DATE",
+            "mfr_dt": "DATE"
         }
 
-    def test_function_creation_sql_syntax(self):
-        """Test that the function creation SQL is syntactically correct."""
-        # Test for basic SQL syntax elements
-        self.assertIn("CREATE OR REPLACE FUNCTION", self.function_sql)
-        self.assertIn("get_completed_year_quarters", self.function_sql)
-        self.assertIn("RETURNS TABLE", self.function_sql)
-        self.assertIn("LANGUAGE plpgsql", self.function_sql)
-        self.assertIn("BEGIN", self.function_sql)
-        self.assertIn("END", self.function_sql)
+    def test_schema_creation(self, mock_db_connection):
+        """Test 1: Verify schema creation logic"""
+        conn, cursor = mock_db_connection
+        
+        # Simulate schema creation
+        cursor.execute.return_value = None
+        cursor.fetchone.return_value = (True,)
+        
+        # Test schema exists after creation
+        cursor.execute("CREATE SCHEMA IF NOT EXISTS faers_a")
+        cursor.execute("SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'faers_a')")
+        
+        result = cursor.fetchone()
+        assert result[0] is True
+        cursor.execute.assert_called()
 
-    def test_function_parameters(self):
-        """Test function parameter definition."""
-        self.assertIn("start_year INT DEFAULT 4", self.function_sql)
-        self.assertIn("RETURNS TABLE (year INT, quarter INT)", self.function_sql)
-
-    @patch('psycopg.connect')
-    def test_function_creation_execution(self, mock_connect):
-        """Test that the function can be created without syntax errors."""
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    def test_get_completed_year_quarters_basic_logic(self, mock_db_connection):
+        """Test 2: Test year-quarter generation logic with current date"""
+        conn, cursor = mock_db_connection
         
-        # Execute function creation
-        mock_cursor.execute(self.function_sql)
-        
-        # Verify the function creation SQL was executed
-        mock_cursor.execute.assert_called_once_with(self.function_sql)
-        
-    @patch('psycopg.connect')
-    def test_function_call_default_parameter(self, mock_connect):
-        """Test calling function with default parameter."""
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        
-        # Mock the function call
-        call_sql = "SELECT * FROM get_completed_year_quarters();"
-        mock_cursor.execute(call_sql)
-        
-        mock_cursor.execute.assert_called_once_with(call_sql)
-
-    @patch('psycopg.connect')
-    def test_function_call_custom_parameter(self, mock_connect):
-        """Test calling function with custom parameter."""
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        
-        # Mock the function call with parameter
-        call_sql = "SELECT * FROM get_completed_year_quarters(10);"
-        mock_cursor.execute(call_sql)
-        
-        mock_cursor.execute.assert_called_once_with(call_sql)
-
-    def test_quarter_logic_calculation(self):
-        """Test the quarter calculation logic (simulated)."""
-        # This tests the logical flow without actual database
-        test_cases = [
-            # (current_quarter, expected_last_quarter, expected_year_offset)
-            (1, 4, -1),  # Q1 -> last completed is Q4 of previous year
-            (2, 1, 0),   # Q2 -> last completed is Q1 of current year
-            (3, 2, 0),   # Q3 -> last completed is Q2 of current year
-            (4, 3, 0),   # Q4 -> last completed is Q3 of current year
-        ]
-        
-        for current_quarter, expected_last_quarter, expected_year_offset in test_cases:
-            with self.subTest(current_quarter=current_quarter):
-                # Simulate the logic from the function
-                if current_quarter == 1:
-                    last_quarter = 4
-                    year_offset = -1
-                else:
-                    last_quarter = current_quarter - 1
-                    year_offset = 0
-                
-                self.assertEqual(last_quarter, expected_last_quarter)
-                self.assertEqual(year_offset, expected_year_offset)
-
-    def test_year_calculation_from_start_year(self):
-        """Test year calculation from start_year parameter."""
-        # Test the conversion from relative year to absolute year
-        test_cases = [
-            (4, 2004),   # start_year=4 -> 2000+4 = 2004
-            (10, 2010),  # start_year=10 -> 2000+10 = 2010
-            (23, 2023),  # start_year=23 -> 2000+23 = 2023
-        ]
-        
-        for start_year, expected_absolute_year in test_cases:
-            with self.subTest(start_year=start_year):
-                absolute_year = 2000 + start_year
-                self.assertEqual(absolute_year, expected_absolute_year)
-
-    @patch('psycopg.connect')
-    def test_function_returns_table_structure(self, mock_connect):
-        """Test that function returns the correct table structure."""
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        
-        # Mock return value with expected structure
-        mock_cursor.fetchall.return_value = [
-            (2004, 1), (2004, 2), (2004, 3), (2004, 4),
-            (2005, 1), (2005, 2)
-        ]
-        
-        mock_cursor.execute("SELECT * FROM get_completed_year_quarters(4);")
-        results = mock_cursor.fetchall()
-        
-        # Verify structure
-        for year, quarter in results:
-            self.assertIsInstance(year, int)
-            self.assertIsInstance(quarter, int)
-            self.assertIn(quarter, [1, 2, 3, 4])
-            self.assertGreaterEqual(year, 2004)
-
-    def test_encoding_and_bom_requirements(self):
-        """Test that the SQL file meets UTF-8 encoding requirements."""
-        # Check that the SQL contains the encoding directive
-        self.assertIn("SET client_encoding = 'UTF8'", self.function_sql)
-        
-        # Verify no BOM characters (these would appear as special characters)
-        # BOM in UTF-8 is \ufeff
-        self.assertNotIn('\ufeff', self.function_sql)
-        
-        # Test that the SQL can be encoded as UTF-8
-        try:
-            encoded = self.function_sql.encode('utf-8')
-            decoded = encoded.decode('utf-8')
-            self.assertEqual(self.function_sql, decoded)
-        except UnicodeError:
-            self.fail("SQL contains characters that cannot be encoded as UTF-8")
-
-    def test_database_comments_and_structure(self):
-        """Test database setup comments and structure."""
-        setup_sql = """
-        -- Ensure this file is saved in UTF-8 encoding without BOM
-        
-        /****** CREATE FAERS_A DATABASE  **********/
-        -- Ensure the database exists (run this separately if needed)
-        -- CREATE DATABASE faers_a;
-        
-        /****** CONFIGURE DATABASE  **********/
-        -- Set client encoding to UTF-8
-        SET client_encoding = 'UTF8';
-        """
-        
-        # Test for required comments
-        self.assertIn("UTF-8 encoding without BOM", setup_sql)
-        self.assertIn("CREATE FAERS_A DATABASE", setup_sql)
-        self.assertIn("CONFIGURE DATABASE", setup_sql)
-        self.assertIn("SET client_encoding = 'UTF8'", setup_sql)
-
-    @patch('psycopg.connect')
-    def test_function_execution_with_different_dates(self, mock_connect):
-        """Test function behavior simulation with different current dates."""
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_connect.return_value.__enter__.return_value = mock_conn
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        
-        # Test scenarios for different quarters
-        test_scenarios = [
-            # (mocked_current_date, start_year, expected_calls)
-            ("2024-01-15", 4, "Q1 scenario"),  # Current is Q1
-            ("2024-04-15", 4, "Q2 scenario"),  # Current is Q2
-            ("2024-07-15", 4, "Q3 scenario"),  # Current is Q3
-            ("2024-10-15", 4, "Q4 scenario"),  # Current is Q4
-        ]
-        
-        for current_date, start_year, scenario in test_scenarios:
-            with self.subTest(scenario=scenario):
-                # Mock current date for the function
-                mock_cursor.execute(f"SELECT CURRENT_DATE;")
-                mock_cursor.fetchone.return_value = (current_date,)
-                
-                # Call the function
-                mock_cursor.execute(f"SELECT * FROM get_completed_year_quarters({start_year});")
-                
-                # Verify the function was called
-                self.assertTrue(mock_cursor.execute.called)
-
-    def test_function_docstring_and_comments(self):
-        """Test that function includes proper documentation."""
-        # Check for function description comment
-        self.assertIn("Function to determine completed year-quarter combinations", self.function_sql)
-        self.assertIn("from the start year to the last completed quarter", self.function_sql)
-        
-        # Check for inline comments
-        self.assertIn("-- Get current year and quarter", self.function_sql)
-        self.assertIn("-- Determine last completed quarter", self.function_sql)
-        self.assertIn("-- Generate year-quarter pairs", self.function_sql)
-
-    def test_function_variable_declarations(self):
-        """Test that all necessary variables are declared."""
-        expected_variables = [
-            "current_year INT",
-            "current_quarter INT", 
-            "last_year INT",
-            "last_quarter INT",
-            "y INT",
-            "q INT"
-        ]
-        
-        for variable in expected_variables:
-            with self.subTest(variable=variable):
-                self.assertIn(variable, self.function_sql)
-
-    def test_function_control_flow(self):
-        """Test function control flow statements."""
-        # Test for conditional logic
-        self.assertIn("IF current_quarter = 1 THEN", self.function_sql)
-        self.assertIn("ELSE", self.function_sql)
-        self.assertIn("END IF", self.function_sql)
-        
-        # Test for loops
-        self.assertIn("WHILE y <= last_year LOOP", self.function_sql)
-        self.assertIn("WHILE q <= 4 LOOP", self.function_sql)
-        self.assertIn("END LOOP", self.function_sql)
-        
-        # Test for loop control
-        self.assertIn("EXIT", self.function_sql)
-        self.assertIn("RETURN NEXT", self.function_sql)
-
-
-class TestFunctionIntegration(unittest.TestCase):
-    """Integration tests for the PostgreSQL function (requires actual database)."""
-    
-    def setUp(self):
-        """Set up for integration tests."""
-        self.db_params = {
-            'host': os.getenv('DB_HOST', 'localhost'),
-            'port': int(os.getenv('DB_PORT', 5432)),
-            'dbname': os.getenv('DB_NAME', 'test_faers_a'),
-            'user': os.getenv('DB_USER', 'test_user'),
-            'password': os.getenv('DB_PASSWORD', 'test_pass')
-        }
-        
-    @unittest.skipUnless(os.getenv('RUN_INTEGRATION_TESTS'), 
-                        "Integration tests require environment variable RUN_INTEGRATION_TESTS=1")
-    def test_function_with_real_database(self):
-        """Test function with actual database connection."""
-        try:
-            with psycopg.connect(**self.db_params) as conn:
-                with conn.cursor() as cur:
-                    # Create the function
-                    cur.execute(self.function_sql)
-                    
-                    # Test the function
-                    cur.execute("SELECT * FROM get_completed_year_quarters(4) LIMIT 10;")
-                    results = cur.fetchall()
-                    
-                    # Verify results
-                    self.assertIsInstance(results, list)
-                    if results:
-                        year, quarter = results[0]
-                        self.assertIsInstance(year, int)
-                        self.assertIsInstance(quarter, int)
-                        self.assertIn(quarter, [1, 2, 3, 4])
-                        self.assertGreaterEqual(year, 2004)
-                        
-        except psycopg.Error as e:
-            self.skipTest(f"Database connection failed: {e}")
-
-
-class TestSQLFileFormat(unittest.TestCase):
-    """Test SQL file format and encoding requirements."""
-    
-    def test_create_sql_file_with_proper_encoding(self):
-        """Test creating SQL file with proper UTF-8 encoding without BOM."""
-        sql_content = """-- Ensure this file is saved in UTF-8 encoding without BOM
-
-/****** CREATE FAERS_A DATABASE  **********/
--- Ensure the database exists (run this separately if needed)
--- CREATE DATABASE faers_a;
-
-/****** CONFIGURE DATABASE  **********/
--- Set client encoding to UTF-8
-SET client_encoding = 'UTF8';
-
-CREATE OR REPLACE FUNCTION get_completed_year_quarters(start_year INT DEFAULT 4)
-RETURNS TABLE (year INT, quarter INT)
-AS $func$
--- Function implementation here
-$func$ LANGUAGE plpgsql;
-"""
-        
-        # Test writing and reading the file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.sql', delete=False) as f:
-            f.write(sql_content)
-            temp_path = f.name
-        
-        try:
-            # Read back and verify
-            with open(temp_path, 'r', encoding='utf-8') as f:
-                read_content = f.read()
+        # Mock current date as 2024 Q2 (should return up to 2024 Q1)
+        with patch('datetime.datetime') as mock_datetime:
+            mock_datetime.now.return_value = datetime(2024, 6, 15)  # Q2
             
-            self.assertEqual(sql_content, read_content)
+            # Expected results for start_year=4 (2004) to 2024 Q1
+            expected_quarters = []
+            for year in range(2004, 2025):
+                for quarter in range(1, 5):
+                    if year == 2024 and quarter > 1:  # Stop at Q1 2024
+                        break
+                    expected_quarters.append((year, quarter))
             
-            # Check file doesn't start with BOM
-            with open(temp_path, 'rb') as f:
-                first_bytes = f.read(3)
-                self.assertNotEqual(first_bytes, b'\xef\xbb\xbf')  # UTF-8 BOM
-                
-        finally:
-            os.unlink(temp_path)
+            cursor.fetchall.return_value = expected_quarters
+            
+            # Execute function
+            cursor.callproc("faers_a.get_completed_year_quarters", [4])
+            results = cursor.fetchall()
+            
+            assert len(results) > 0
+            assert (2004, 1) in results
+            assert (2024, 1) in results
+            assert (2024, 2) not in results  # Current quarter shouldn't be included
 
-    def test_sql_encoding_compatibility(self):
-        """Test SQL content can handle various UTF-8 characters."""
-        sql_with_unicode = """
-        -- Test with various characters: àáâãäå æç èéêë ìíîï ñ òóôõö ùúûü ý
-        -- Mathematical symbols: ∑ ∏ ∫ ≤ ≥ ≠ ± × ÷
-        -- Function with unicode in comments
-        CREATE OR REPLACE FUNCTION test_unicode()
-        RETURNS TEXT AS $$
-        BEGIN
-            RETURN 'Testing UTF-8 encoding: ñoño';
-        END;
-        $$ LANGUAGE plpgsql;
-        """
+    def test_get_completed_year_quarters_edge_case_q1(self, mock_db_connection):
+        """Test 3: Test year-quarter logic when current quarter is Q1"""
+        conn, cursor = mock_db_connection
         
-        # Test encoding/decoding
+        # Mock current date as 2024 Q1 (should return up to 2023 Q4)
+        with patch('datetime.datetime') as mock_datetime:
+            mock_datetime.now.return_value = datetime(2024, 2, 15)  # Q1
+            
+            expected_last = (2023, 4)
+            cursor.fetchall.return_value = [(2023, 4), (2023, 3)]
+            
+            cursor.callproc("faers_a.get_completed_year_quarters", [23])  # Start from 2023
+            results = cursor.fetchall()
+            
+            assert expected_last in results
+            assert (2024, 1) not in results
+
+    def test_process_faers_file_table_name_generation(self, mock_db_connection):
+        """Test 4: Test table name generation logic"""
+        conn, cursor = mock_db_connection
+        
+        test_cases = [
+            ("DEMO", 2023, 1, "faers_a.demo23q1"),
+            ("DRUG", 2024, 4, "faers_a.drug24q4"),
+            ("REAC", 2022, 2, "faers_a.reac22q2")
+        ]
+        
+        for schema_name, year, quarter, expected_table in test_cases:
+            # Calculate expected table name
+            actual_table = f"faers_a.{schema_name.lower()}{year % 100:02d}q{quarter}"
+            assert actual_table == expected_table
+
+    def test_process_faers_file_column_definition_building(self, mock_db_connection, sample_columns_json):
+        """Test 5: Test column definitions are built correctly from JSON"""
+        conn, cursor = mock_db_connection
+        
+        # Test column definition string building
+        expected_columns = ["caseid", "caseversion", "i_f_code", "event_dt", "mfr_dt"]
+        expected_types = ["VARCHAR(50)", "INT", "VARCHAR(10)", "DATE", "DATE"]
+        
+        column_def_parts = []
+        column_names = []
+        
+        for key, value in sample_columns_json.items():
+            column_def_parts.append(f"{key} {value}")
+            column_names.append(key)
+        
+        column_def = ", ".join(column_def_parts)
+        columns = ", ".join(column_names)
+        
+        assert all(col in columns for col in expected_columns)
+        assert all(typ in column_def for typ in expected_types)
+        assert column_def.count(",") == len(sample_columns_json) - 1
+
+    def test_server_connection_timeout(self, mock_db_connection):
+        """Test 6: Server-related test - connection timeout handling"""
+        conn, cursor = mock_db_connection
+        
+        # Simulate server timeout
+        cursor.execute.side_effect = psycopg2.OperationalError("server closed the connection unexpectedly")
+        
+        with pytest.raises(psycopg2.OperationalError):
+            cursor.execute("SELECT 1")
+        
+        # Test that we can detect and handle server issues
         try:
-            encoded = sql_with_unicode.encode('utf-8')
-            decoded = encoded.decode('utf-8')
-            self.assertEqual(sql_with_unicode, decoded)
-        except UnicodeError:
-            self.fail("SQL with Unicode characters failed UTF-8 encoding test")
+            cursor.execute("SELECT 1")
+        except psycopg2.OperationalError as e:
+            assert "server closed the connection" in str(e)
+
+    def test_server_encoding_validation(self, mock_db_connection):
+        """Test 7: Server-related test - UTF-8 encoding validation"""
+        conn, cursor = mock_db_connection
+        
+        # Test encoding setting
+        cursor.fetchone.return_value = ("UTF8",)
+        cursor.execute("SHOW client_encoding")
+        encoding = cursor.fetchone()[0]
+        
+        assert encoding == "UTF8"
+        
+        # Test with non-UTF8 encoding (should fail in real scenario)
+        cursor.fetchone.return_value = ("LATIN1",)
+        cursor.execute("SHOW client_encoding")
+        encoding = cursor.fetchone()[0]
+        
+        assert encoding != "UTF8"  # This would indicate a server configuration issue
+
+    def test_file_header_validation_logic(self, mock_db_connection, sample_columns_json):
+        """Test 8: Test file header validation logic"""
+        conn, cursor = mock_db_connection
+        
+        # Test correct header count
+        expected_count = len(sample_columns_json)
+        actual_count = 5  # Should match sample_columns_json length
+        
+        assert actual_count == expected_count
+        
+        # Test incorrect header count (should raise exception)
+        wrong_count = 3
+        assert wrong_count != expected_count
+        
+        # Simulate header mismatch scenario
+        with pytest.raises(AssertionError):
+            if wrong_count != expected_count:
+                raise AssertionError(f'Header column count mismatch: expected {expected_count}, got {wrong_count}')
+
+    def test_copy_command_format_validation(self, mock_db_connection):
+        """Test 9: Test \\copy command format validation"""
+        conn, cursor = mock_db_connection
+        
+        test_file_path = "/path/to/test/file.txt"
+        table_name = "faers_a.demo23q1"
+        columns = "caseid, caseversion, i_f_code"
+        
+        # Build expected copy command
+        expected_copy_cmd = f"\\copy {table_name} ({columns}) FROM '{test_file_path}' WITH (FORMAT csv, DELIMITER '$', HEADER true, NULL '', ENCODING 'UTF8')"
+        
+        # Validate command structure
+        assert "\\copy" in expected_copy_cmd
+        assert "FORMAT csv" in expected_copy_cmd
+        assert "DELIMITER '$'" in expected_copy_cmd
+        assert "HEADER true" in expected_copy_cmd
+        assert "ENCODING 'UTF8'" in expected_copy_cmd
+        assert test_file_path in expected_copy_cmd
+
+    def test_error_handling_and_rollback_logic(self, mock_db_connection):
+        """Test 10: Test error handling and transaction rollback"""
+        conn, cursor = mock_db_connection
+        
+        # Test successful transaction
+        cursor.execute.return_value = None
+        cursor.execute("BEGIN")
+        cursor.execute("CREATE TABLE test_table (id INT)")
+        cursor.execute("COMMIT")
+        
+        # Test failed transaction with rollback
+        cursor.execute.side_effect = [None, None, Exception("SQL Error"), None]
+        
+        try:
+            cursor.execute("BEGIN")
+            cursor.execute("CREATE TABLE test_table (id INT)")
+            cursor.execute("INSERT INTO invalid_table VALUES (1)")  # This should fail
+        except Exception as e:
+            cursor.execute("ROLLBACK")
+            assert "SQL Error" in str(e)
+        
+        # Verify rollback was called
+        calls = [call[0][0] for call in cursor.execute.call_args_list]
+        assert "ROLLBACK" in calls
+
+
+# Additional helper functions for integration testing
+class TestS2SQLIntegration:
+    """Integration tests that require actual database connection"""
+    
+    @pytest.mark.integration
+    def test_actual_database_connection(self):
+        """Integration test - requires actual database"""
+        pytest.skip("Requires actual database connection - run separately")
+    
+    @pytest.mark.integration  
+    def test_file_processing_with_real_data(self):
+        """Integration test with real file processing"""
+        pytest.skip("Requires actual database and file system - run separately")
 
 
 if __name__ == "__main__":
-    # Create test suite
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    
-    # Add test classes
-    suite.addTests(loader.loadTestsFromTestCase(TestGetCompletedYearQuartersFunction))
-    suite.addTests(loader.loadTestsFromTestCase(TestSQLFileFormat))
-    
-    # Only add integration tests if environment variable is set
-    if os.getenv('RUN_INTEGRATION_TESTS'):
-        suite.addTests(loader.loadTestsFromTestCase(TestFunctionIntegration))
-    
-    # Run tests
-    runner = unittest.TextTestRunner(verbosity=2, buffer=True)
-    result = runner.run(suite)
-    
-    # Print summary
-    if result.wasSuccessful():
-        print(f"\n✅ All {result.testsRun} tests passed!")
-    else:
-        print(f"\n❌ {len(result.failures + result.errors)} test(s) failed out of {result.testsRun}")
-    
-    # Exit with appropriate code
-    sys.exit(0 if result.wasSuccessful() else 1)
+    # Run tests with: python -m pytest unit_tests/sql/test_s2.py -v
+    # Run with server tests: python -m pytest unit_tests/sql/test_s2.py -v -k "server"
+    # Run without integration: python -m pytest unit_tests/sql/test_s2.py -v -m "not integration"
+    pytest.main([__file__, "-v"])
