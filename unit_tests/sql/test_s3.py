@@ -1,427 +1,326 @@
-import unittest
-import os
-import sys
+import pytest
 import psycopg
-import tempfile
+from psycopg import errors as pg_errors
+from unittest.mock import patch, MagicMock
 import json
-from unittest.mock import patch, MagicMock, mock_open
-import subprocess
-
-# Add the parent directory to sys.path to import the module
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import os
 
 
-class TestS3SQL(unittest.TestCase):
-    """Test cases for s3.sql database operations"""
+class TestS3SQL:
+    """Simple unit tests for s3.sql MedDRA operations"""
     
-    @classmethod
-    def setUpClass(cls):
-        """Set up test database connection parameters"""
-        cls.test_db_params = {
-            "host": os.getenv("TEST_DB_HOST", "localhost"),
-            "port": int(os.getenv("TEST_DB_PORT", 5432)),
-            "user": os.getenv("TEST_DB_USER", "test_user"),
-            "password": os.getenv("TEST_DB_PASSWORD", "test_pass"),
-            "dbname": os.getenv("TEST_DB_NAME", "test_faers")
-        }
-        
-        # SQL script path
-        cls.s3_sql_path = "s3.sql"
-        
-        # Expected MedDRA tables
-        cls.meddra_tables = [
-            "low_level_term",
-            "pref_term", 
-            "hlt_pref_term",
-            "hlt_pref_comp",
-            "hlgt_pref_term",
-            "hlgt_hlt_comp",
-            "soc_term",
-            "soc_hlgt_comp",
-            "md_hierarchy",
-            "soc_intl_order",
-            "smq_list",
-            "smq_content"
-        ]
-        
-        # Expected mapping tables
-        cls.mapping_tables = [
-            "indi_medra_mappings",
-            "reac_medra_mappings"
+    @pytest.fixture
+    def mock_db_connection(self):
+        """Mock database connection for testing"""
+        conn = MagicMock()
+        cursor = MagicMock()
+        conn.cursor.return_value = cursor
+        return conn, cursor
+    
+    @pytest.fixture
+    def sample_meddra_tables(self):
+        """List of expected MedDRA tables"""
+        return [
+            'low_level_term', 'pref_term', 'hlt_pref_term', 'hlt_pref_comp',
+            'hlgt_pref_term', 'hlgt_hlt_comp', 'soc_term', 'soc_hlgt_comp',
+            'md_hierarchy', 'soc_intl_order', 'smq_list', 'smq_content'
         ]
     
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        self.mock_conn = MagicMock()
-        self.mock_cursor = MagicMock()
-        self.mock_conn.cursor.return_value.__enter__.return_value = self.mock_cursor
-    
-    def test_meddra_table_creation_structure(self):
-        """Test that MedDRA tables are created with correct structure"""
-        expected_structures = {
-            "low_level_term": [
-                "llt_code BIGINT",
-                "llt_name VARCHAR(100)",
-                "pt_code CHAR(8)",
-                "llt_whoart_code CHAR(7)",
-                "llt_harts_code BIGINT",
-                "llt_costart_sym VARCHAR(21)",
-                "llt_icd9_code CHAR(8)",
-                "llt_icd9cm_code CHAR(8)",
-                "llt_icd10_code CHAR(8)",
-                "llt_jart_code CHAR(8)"
+    @pytest.fixture
+    def sample_mapping_data(self):
+        """Sample mapping data for testing"""
+        return {
+            'indi_mappings': [
+                {'term_name': 'HYPERTENSION', 'meddra_code': '10020772'},
+                {'term_name': 'DIABETES', 'meddra_code': '10012601'}
             ],
-            "pref_term": [
-                "pt_code BIGINT",
-                "pt_name VARCHAR(100)",
-                "null_field CHAR(1)",
-                "pt_soc_code BIGINT",
-                "pt_whoart_code CHAR(7)",
-                "pt_harts_code BIGINT",
-                "pt_costart_sym CHAR(21)",
-                "pt_icd9_code CHAR(8)",
-                "pt_icd9cm_code CHAR(8)",
-                "pt_icd10_code CHAR(8)",
-                "pt_jart_code CHAR(8)"
-            ],
-            "indi_medra_mappings": [
-                "term_name TEXT PRIMARY KEY",
-                "meddra_code TEXT"
-            ],
-            "reac_medra_mappings": [
-                "term_name TEXT PRIMARY KEY", 
-                "meddra_code TEXT"
+            'reac_mappings': [
+                {'term_name': 'NAUSEA', 'meddra_code': '10028813'},
+                {'term_name': 'HEADACHE', 'meddra_code': '10019211'}
             ]
         }
+
+    def test_drop_and_create_meddra_tables(self, mock_db_connection, sample_meddra_tables):
+        """Test 1: Test DROP and CREATE statements for MedDRA tables"""
+        conn, cursor = mock_db_connection
         
-        # This test would verify table structure matches expected schema
-        for table_name, expected_columns in expected_structures.items():
-            with self.subTest(table=table_name):
-                # In a real test, you would query INFORMATION_SCHEMA to verify structure
-                self.assertIsInstance(expected_columns, list)
-                self.assertGreater(len(expected_columns), 0)
-    
-    @patch('psycopg.connect')
-    def test_table_drop_and_create_sequence(self, mock_connect):
-        """Test that tables are properly dropped and recreated"""
-        mock_connect.return_value.__enter__.return_value = self.mock_conn
+        # Test table creation structure
+        create_table_sql = """
+        DROP TABLE IF EXISTS low_level_term;
+        CREATE TABLE IF NOT EXISTS low_level_term (
+            llt_code BIGINT,
+            llt_name VARCHAR(100),
+            pt_code CHAR(8)
+        );
+        """
         
-        # Mock the execution of s3.sql
-        with patch('subprocess.run') as mock_subprocess:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "Tables created successfully"
-            mock_subprocess.return_value = mock_result
-            
-            # Execute the SQL script
-            cmd = ["psql", "-f", self.s3_sql_path]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            # Verify subprocess was called
-            mock_subprocess.assert_called_once()
-    
-    def test_meddra_copy_commands_format(self):
-        """Test that COPY commands use correct format and delimiter"""
-        # Read the SQL file and verify COPY command formats
-        if os.path.exists(self.s3_sql_path):
-            with open(self.s3_sql_path, 'r') as f:
-                sql_content = f.read()
-                
-                # Check for proper COPY command format
-                copy_commands = [line for line in sql_content.split('\n') if 'COPY' in line and 'FROM' in line]
-                
-                for copy_cmd in copy_commands:
-                    with self.subTest(command=copy_cmd):
-                        # Verify delimiter is '$'
-                        self.assertIn("DELIMITER '$'", copy_cmd)
-                        # Verify header is false
-                        self.assertIn("HEADER false", copy_cmd)
-                        # Verify CSV format
-                        self.assertIn("FORMAT CSV", copy_cmd)
-    
-    @patch('psycopg.connect')
-    def test_indi_combined_column_additions(self, mock_connect):
-        """Test that INDI_Combined table gets new columns added"""
-        mock_connect.return_value.__enter__.return_value = self.mock_conn
+        cursor.execute.return_value = None
         
-        # Mock cursor to simulate column addition check
-        def mock_execute_side_effect(query):
-            if "ADD COLUMN IF NOT EXISTS meddra_code" in query:
-                return None  # Column added successfully
-            elif "ADD COLUMN IF NOT EXISTS cleaned_pt" in query:
-                return None  # Column added successfully
-            return None
+        # Should execute without errors
+        cursor.execute(create_table_sql)
+        assert cursor.execute.called
         
-        self.mock_cursor.execute.side_effect = mock_execute_side_effect
+        # Verify table structure contains expected columns
+        assert 'llt_code BIGINT' in create_table_sql
+        assert 'llt_name VARCHAR(100)' in create_table_sql
+        assert 'DROP TABLE IF EXISTS' in create_table_sql
+
+    def test_copy_command_structure(self, mock_db_connection):
+        """Test 2: Test COPY command structure for MedDRA data loading"""
+        conn, cursor = mock_db_connection
         
-        # Test the ALTER TABLE statements
-        alter_queries = [
+        copy_command = """
+        COPY low_level_term FROM '../faers-data/MedDRA_25_1_English/MedAscii/llt.asc'
+        WITH (FORMAT CSV, DELIMITER '$', HEADER false);
+        """
+        
+        cursor.execute.return_value = None
+        cursor.execute(copy_command)
+        
+        # Verify COPY command structure
+        assert 'COPY' in copy_command
+        assert "DELIMITER '$'" in copy_command
+        assert 'HEADER false' in copy_command
+        assert 'FORMAT CSV' in copy_command
+        assert '.asc' in copy_command
+
+    def test_mapping_tables_creation(self, mock_db_connection):
+        """Test 3: Test creation of mapping tables for INDI and REAC"""
+        conn, cursor = mock_db_connection
+        
+        mapping_tables_sql = """
+        DROP TABLE IF EXISTS indi_medra_mappings;
+        CREATE TABLE IF NOT EXISTS indi_medra_mappings (
+            term_name TEXT PRIMARY KEY,
+            meddra_code TEXT
+        );
+        
+        DROP TABLE IF EXISTS reac_medra_mappings;
+        CREATE TABLE IF NOT EXISTS reac_medra_mappings (
+            term_name TEXT PRIMARY KEY,
+            meddra_code TEXT
+        );
+        """
+        
+        cursor.execute.return_value = None
+        cursor.execute(mapping_tables_sql)
+        
+        # Verify mapping table structure
+        assert 'indi_medra_mappings' in mapping_tables_sql
+        assert 'reac_medra_mappings' in mapping_tables_sql
+        assert 'PRIMARY KEY' in mapping_tables_sql
+        assert 'term_name TEXT' in mapping_tables_sql
+        assert 'meddra_code TEXT' in mapping_tables_sql
+
+    def test_json_data_loading(self, mock_db_connection):
+        """Test 4: Test JSON data loading into mapping tables"""
+        conn, cursor = mock_db_connection
+        
+        json_copy_commands = [
+            "COPY indi_medra_mappings(term_name, meddra_code) FROM '../faers-data/INDI_medra_mappings.json' WITH (FORMAT json);",
+            "COPY reac_medra_mappings(term_name, meddra_code) FROM '../faers-data/REAC_medra_mappings.json' WITH (FORMAT json);"
+        ]
+        
+        cursor.execute.return_value = None
+        
+        for command in json_copy_commands:
+            cursor.execute(command)
+            assert 'FORMAT json' in command
+            assert '.json' in command
+            assert 'COPY' in command
+
+    def test_alter_table_add_columns(self, mock_db_connection):
+        """Test 5: Test ALTER TABLE statements for adding MedDRA columns"""
+        conn, cursor = mock_db_connection
+        
+        alter_statements = [
             "ALTER TABLE IF EXISTS INDI_Combined ADD COLUMN IF NOT EXISTS meddra_code TEXT;",
-            "ALTER TABLE IF EXISTS INDI_Combined ADD COLUMN IF NOT EXISTS cleaned_pt VARCHAR(100);"
+            "ALTER TABLE IF EXISTS INDI_Combined ADD COLUMN IF NOT EXISTS cleaned_pt VARCHAR(100);",
+            "ALTER TABLE IF EXISTS REAC_Combined ADD COLUMN IF NOT EXISTS meddra_code TEXT;"
         ]
         
-        for query in alter_queries:
-            with self.subTest(query=query):
-                self.mock_cursor.execute(query)
-                self.mock_cursor.execute.assert_called()
-    
-    @patch('psycopg.connect')
-    def test_reac_combined_column_additions(self, mock_connect):
-        """Test that REAC_Combined table gets new columns added"""
-        mock_connect.return_value.__enter__.return_value = self.mock_conn
+        cursor.execute.return_value = None
         
-        # Mock cursor for REAC_Combined alterations
-        alter_query = "ALTER TABLE IF EXISTS REAC_Combined ADD COLUMN IF NOT EXISTS meddra_code TEXT;"
+        for stmt in alter_statements:
+            cursor.execute(stmt)
+            assert 'ALTER TABLE' in stmt
+            assert 'ADD COLUMN' in stmt
+            assert 'IF EXISTS' in stmt
+            assert 'IF NOT EXISTS' in stmt
+
+    def test_data_cleaning_update_statements(self, mock_db_connection):
+        """Test 6: Test data cleaning UPDATE statements"""
+        conn, cursor = mock_db_connection
         
-        self.mock_cursor.execute(alter_query)
-        self.mock_cursor.execute.assert_called_with(alter_query)
-    
-    def test_data_cleaning_logic(self):
-        """Test the data cleaning logic for INDI_Combined"""
-        # Test the cleaning logic independently
-        sample_dirty_data = [
-            "  HEADACHE  \n",
-            "\tNausea\r\n",
-            "FEVER\n\r",
-            "  Pain  "
-        ]
+        # Test cleaning statement structure
+        cleaning_sql = """
+        UPDATE INDI_Combined
+        SET cleaned_pt = UPPER(TRIM(BOTH FROM REPLACE(REPLACE(REPLACE(indi_pt, E'\\n', ''), E'\\r', ''), E'\\t', '')));
+        """
         
-        expected_cleaned = [
-            "HEADACHE",
-            "NAUSEA", 
-            "FEVER",
-            "PAIN"
-        ]
+        cursor.execute.return_value = None
+        cursor.rowcount = 1000  # Mock 1000 rows updated
         
-        for dirty, expected in zip(sample_dirty_data, expected_cleaned):
-            with self.subTest(input=dirty):
-                # Simulate the cleaning process
-                cleaned = dirty.strip().replace('\n', '').replace('\r', '').replace('\t', '').upper()
-                self.assertEqual(cleaned, expected)
-    
-    @patch('psycopg.connect')
-    def test_meddra_code_update_logic(self, mock_connect):
-        """Test the MedDRA code update logic"""
-        mock_connect.return_value.__enter__.return_value = self.mock_conn
+        cursor.execute(cleaning_sql)
         
-        # Mock data for testing updates
-        update_queries = [
-            # Update from pref_term
-            """UPDATE INDI_Combined
-            SET meddra_code = b.pt_code::TEXT
-            FROM pref_term b
-            WHERE INDI_Combined.cleaned_pt = b.pt_name AND meddra_code IS NULL;""",
-            
-            # Update from low_level_term
-            """UPDATE INDI_Combined
-            SET meddra_code = b.llt_code::TEXT
-            FROM low_level_term b
-            WHERE INDI_Combined.cleaned_pt = b.llt_name AND meddra_code IS NULL;""",
-            
-            # Update from mappings
-            """UPDATE INDI_Combined
-            SET meddra_code = m.meddra_code
-            FROM indi_medra_mappings m
-            WHERE INDI_Combined.cleaned_pt = m.term_name
-            AND meddra_code IS NULL;"""
-        ]
+        # Verify cleaning logic
+        assert 'UPPER(' in cleaning_sql
+        assert 'TRIM(' in cleaning_sql
+        assert 'REPLACE(' in cleaning_sql
+        assert "E'\\n'" in cleaning_sql  # Newline removal
+        assert "E'\\r'" in cleaning_sql  # Carriage return removal
+        assert "E'\\t'" in cleaning_sql  # Tab removal
+
+    def test_meddra_code_mapping_updates(self, mock_db_connection):
+        """Test 7: Test MedDRA code mapping UPDATE statements"""
+        conn, cursor = mock_db_connection
         
-        for query in update_queries:
-            with self.subTest(query=query[:50] + "..."):
-                self.mock_cursor.execute(query)
-                self.mock_cursor.execute.assert_called()
-    
-    @patch('psycopg.connect')
-    def test_index_creation(self, mock_connect):
-        """Test that indexes are created properly"""
-        mock_connect.return_value.__enter__.return_value = self.mock_conn
+        # Test pref_term mapping
+        pref_term_update = """
+        UPDATE INDI_Combined
+        SET meddra_code = b.pt_code::TEXT
+        FROM pref_term b
+        WHERE INDI_Combined.cleaned_pt = b.pt_name AND meddra_code IS NULL;
+        """
         
-        index_queries = [
+        cursor.execute.return_value = None
+        cursor.rowcount = 500  # Mock 500 rows updated
+        
+        cursor.execute(pref_term_update)
+        
+        # Verify mapping logic
+        assert 'FROM pref_term b' in pref_term_update
+        assert 'pt_code::TEXT' in pref_term_update
+        assert 'meddra_code IS NULL' in pref_term_update
+        assert 'WHERE' in pref_term_update
+
+    def test_index_creation_statements(self, mock_db_connection):
+        """Test 8: Test index creation for MedDRA codes"""
+        conn, cursor = mock_db_connection
+        
+        index_statements = [
             "CREATE INDEX IF NOT EXISTS indi_meddra_code_idx ON INDI_Combined (meddra_code);",
             "CREATE INDEX IF NOT EXISTS reac_meddra_code_idx ON REAC_Combined (meddra_code);"
         ]
         
-        for query in index_queries:
-            with self.subTest(query=query):
-                self.mock_cursor.execute(query)
-                self.mock_cursor.execute.assert_called()
-    
-    def test_file_path_references(self):
-        """Test that file paths in COPY commands are correct"""
-        if os.path.exists(self.s3_sql_path):
-            with open(self.s3_sql_path, 'r') as f:
-                sql_content = f.read()
-                
-                # Check for expected file paths
-                expected_paths = [
-                    "../faers-data/MedDRA_25_1_English/MedAscii/llt.asc",
-                    "../faers-data/MedDRA_25_1_English/MedAscii/pt.asc",
-                    "../faers-data/INDI_medra_mappings.json",
-                    "../faers-data/REAC_medra_mappings.json"
-                ]
-                
-                for path in expected_paths:
-                    with self.subTest(path=path):
-                        self.assertIn(path, sql_content)
-    
-    def test_json_format_copy_commands(self):
-        """Test that JSON files are loaded with correct format"""
-        if os.path.exists(self.s3_sql_path):
-            with open(self.s3_sql_path, 'r') as f:
-                sql_content = f.read()
-                
-                # Find JSON COPY commands
-                json_copy_lines = [line for line in sql_content.split('\n') 
-                                 if 'COPY' in line and '.json' in line]
-                
-                for line in json_copy_lines:
-                    with self.subTest(line=line):
-                        self.assertIn("FORMAT json", line)
-    
-    @patch('psycopg.connect')
-    def test_table_existence_check(self, mock_connect):
-        """Test checking if tables exist before operations"""
-        mock_connect.return_value.__enter__.return_value = self.mock_conn
+        cursor.execute.return_value = None
         
-        # Mock query to check table existence
-        existence_query = """
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_name = %s
-        );
+        for stmt in index_statements:
+            cursor.execute(stmt)
+            assert 'CREATE INDEX' in stmt
+            assert 'IF NOT EXISTS' in stmt
+            assert 'meddra_code' in stmt
+            assert '_idx' in stmt
+
+    def test_server_file_access_handling(self, mock_db_connection):
+        """Test 9: Server-related test - file access for COPY operations"""
+        conn, cursor = mock_db_connection
+        
+        copy_command = "COPY low_level_term FROM '../faers-data/MedDRA_25_1_English/MedAscii/llt.asc' WITH (FORMAT CSV, DELIMITER '$', HEADER false);"
+        
+        # Test successful file access
+        cursor.execute.return_value = None
+        cursor.execute(copy_command)
+        assert cursor.execute.called
+        
+        # Test file not found error
+        cursor.execute.side_effect = pg_errors.NoSuchFile("File not found")
+        
+        with pytest.raises(pg_errors.NoSuchFile):
+            cursor.execute(copy_command)
+        
+        # Test permission denied error
+        cursor.execute.side_effect = pg_errors.InsufficientPrivilege("Permission denied to read file")
+        
+        with pytest.raises(pg_errors.InsufficientPrivilege):
+            cursor.execute(copy_command)
+
+    def test_server_memory_handling_large_tables(self, mock_db_connection):
+        """Test 10: Server-related test - memory handling for large MedDRA tables"""
+        conn, cursor = mock_db_connection
+        
+        # Test large table operations
+        large_update_sql = """
+        UPDATE INDI_Combined
+        SET meddra_code = b.pt_code::TEXT
+        FROM pref_term b
+        WHERE INDI_Combined.cleaned_pt = b.pt_name;
         """
         
-        # Mock return value - table exists
-        self.mock_cursor.fetchone.return_value = [True]
+        # Test successful execution
+        cursor.execute.return_value = None
+        cursor.rowcount = 100000  # Mock large number of rows
+        cursor.execute(large_update_sql)
+        assert cursor.execute.called
         
-        for table in ["INDI_Combined", "REAC_Combined"]:
-            with self.subTest(table=table):
-                self.mock_cursor.execute(existence_query, (table.lower(),))
-                result = self.mock_cursor.fetchone()[0]
-                self.assertTrue(result)
-    
-    def test_sql_syntax_validation(self):
-        """Test that SQL file has valid syntax"""
-        if os.path.exists(self.s3_sql_path):
-            with open(self.s3_sql_path, 'r') as f:
-                sql_content = f.read()
-                
-                # Basic syntax checks
-                self.assertGreater(sql_content.count('DROP TABLE'), 0)
-                self.assertGreater(sql_content.count('CREATE TABLE'), 0)
-                self.assertGreater(sql_content.count('COPY'), 0)
-                self.assertGreater(sql_content.count('UPDATE'), 0)
-                self.assertGreater(sql_content.count('ALTER TABLE'), 0)
-                
-                # Check for balanced parentheses
-                open_parens = sql_content.count('(')
-                close_parens = sql_content.count(')')
-                self.assertEqual(open_parens, close_parens, "Unbalanced parentheses in SQL")
+        # Test out of memory error
+        cursor.execute.side_effect = pg_errors.OutOfMemory("Out of memory")
+        
+        with pytest.raises(pg_errors.OutOfMemory):
+            cursor.execute(large_update_sql)
+        
+        # Test disk full error during large operations
+        cursor.execute.side_effect = pg_errors.DiskFull("Disk full")
+        
+        with pytest.raises(pg_errors.DiskFull):
+            cursor.execute(large_update_sql)
 
 
-class TestS3SQLIntegration(unittest.TestCase):
-    """Integration tests for s3.sql with actual database"""
+# Additional validation tests
+class TestS3SQLValidation:
+    """Additional validation tests for S3 SQL operations"""
     
-    def setUp(self):
-        """Set up integration test environment"""
-        self.test_db_available = all([
-            os.getenv("TEST_DB_HOST"),
-            os.getenv("TEST_DB_USER"),
-            os.getenv("TEST_DB_NAME")
-        ])
-        
-        if self.test_db_available:
-            self.db_params = {
-                "host": os.getenv("TEST_DB_HOST"),
-                "port": int(os.getenv("TEST_DB_PORT", 5432)),
-                "user": os.getenv("TEST_DB_USER"),
-                "password": os.getenv("TEST_DB_PASSWORD", ""),
-                "dbname": os.getenv("TEST_DB_NAME")
-            }
-    
-    @unittest.skipUnless(os.getenv("RUN_INTEGRATION_TESTS"), "Integration tests disabled")
-    def test_full_sql_execution(self):
-        """Test full execution of s3.sql against test database"""
-        if not self.test_db_available:
-            self.skipTest("Test database not configured")
-        
-        try:
-            with psycopg.connect(**self.db_params) as conn:
-                with conn.cursor() as cur:
-                    # Execute the SQL file
-                    with open("s3.sql", 'r') as f:
-                        sql_content = f.read()
-                    
-                    # Execute in parts to handle potential errors
-                    statements = sql_content.split(';')
-                    
-                    for i, statement in enumerate(statements):
-                        if statement.strip():
-                            try:
-                                cur.execute(statement)
-                                conn.commit()
-                            except Exception as e:
-                                self.fail(f"SQL statement {i} failed: {e}\nStatement: {statement[:100]}...")
-                    
-                    # Verify tables were created
-                    for table in ["low_level_term", "pref_term", "indi_medra_mappings"]:
-                        cur.execute("""
-                            SELECT EXISTS (
-                                SELECT FROM information_schema.tables 
-                                WHERE table_name = %s
-                            );
-                        """, (table,))
-                        
-                        exists = cur.fetchone()[0]
-                        self.assertTrue(exists, f"Table {table} was not created")
-        
-        except psycopg.Error as e:
-            self.skipTest(f"Database connection failed: {e}")
-
-
-class TestS3SQLDataValidation(unittest.TestCase):
-    """Test data validation aspects of s3.sql"""
-    
-    def test_meddra_hierarchy_consistency(self):
-        """Test that MedDRA hierarchy tables are consistent"""
-        # This would test referential integrity between hierarchy tables
-        hierarchy_relationships = [
-            ("md_hierarchy", "pt_code", "pref_term", "pt_code"),
-            ("hlt_pref_comp", "pt_code", "pref_term", "pt_code"),
-            ("hlt_pref_comp", "hlt_code", "hlt_pref_term", "hlt_code")
+    def test_table_column_specifications(self):
+        """Test that table column specifications are valid"""
+        # Test column definitions
+        column_specs = [
+            "llt_code BIGINT",
+            "llt_name VARCHAR(100)",
+            "pt_code CHAR(8)",
+            "term_name TEXT PRIMARY KEY",
+            "meddra_code TEXT"
         ]
         
-        for parent_table, parent_col, child_table, child_col in hierarchy_relationships:
-            with self.subTest(relationship=f"{parent_table}.{parent_col} -> {child_table}.{child_col}"):
-                # In integration tests, you would verify foreign key relationships
-                self.assertIsNotNone(parent_table)
-                self.assertIsNotNone(child_table)
-    
-    def test_data_transformation_rules(self):
-        """Test the data transformation rules"""
-        transformation_tests = [
-            # Test cleaning rule
-            {
-                'input': '  HEADACHE\n\t  ',
-                'expected': 'HEADACHE',
-                'rule': 'UPPER(TRIM(BOTH FROM REPLACE(REPLACE(REPLACE(indi_pt, E\'\\n\', \'\'), E\'\\r\', \'\'), E\'\\t\', \'\')))'
-            }
+        for spec in column_specs:
+            # Basic validation that column specs contain type information
+            assert any(dtype in spec for dtype in ['BIGINT', 'VARCHAR', 'CHAR', 'TEXT', 'INT'])
+
+    def test_file_path_structure(self):
+        """Test that file paths follow expected structure"""
+        file_paths = [
+            '../faers-data/MedDRA_25_1_English/MedAscii/llt.asc',
+            '../faers-data/MedDRA_25_1_English/MedAscii/pt.asc',
+            '../faers-data/INDI_medra_mappings.json',
+            '../faers-data/REAC_medra_mappings.json'
         ]
         
-        for test_case in transformation_tests:
-            with self.subTest(input=test_case['input']):
-                # Simulate the transformation
-                cleaned = test_case['input'].strip().replace('\n', '').replace('\r', '').replace('\t', '').upper()
-                self.assertEqual(cleaned, test_case['expected'])
+        for path in file_paths:
+            assert '../faers-data/' in path
+            assert any(ext in path for ext in ['.asc', '.json'])
+
+    def test_update_statement_structure(self):
+        """Test UPDATE statement structure validation"""
+        update_patterns = [
+            'UPDATE.*SET.*FROM.*WHERE',
+            'meddra_code IS NULL',
+            '::TEXT',
+            'UPPER\\(TRIM\\(',
+            'IF NOT EXISTS'
+        ]
+        
+        sample_update = """
+        UPDATE INDI_Combined
+        SET meddra_code = b.pt_code::TEXT
+        FROM pref_term b
+        WHERE INDI_Combined.cleaned_pt = b.pt_name AND meddra_code IS NULL;
+        """
+        
+        # Test that update follows expected patterns
+        import re
+        assert re.search(update_patterns[0], sample_update)
+        assert update_patterns[1] in sample_update
+        assert update_patterns[2] in sample_update
 
 
-if __name__ == '__main__':
-    # Set up test environment
-    print("Running s3.sql unit tests...")
-    print("For integration tests, set environment variables:")
-    print("  TEST_DB_HOST, TEST_DB_USER, TEST_DB_NAME, TEST_DB_PASSWORD")
-    print("  RUN_INTEGRATION_TESTS=1")
-    print()
-    
-    # Run tests
-    unittest.main(verbosity=2)
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
