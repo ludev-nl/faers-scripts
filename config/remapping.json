@@ -1,0 +1,23 @@
+{
+    "RXNORM": {
+        "TTY": "IN",
+        "mappings": [
+            {
+                "RXCUI": "123456",
+                "RXAUI": "654321",
+                "STR": "Aspirin",
+                "SAB": "RXNORM",
+                "TTY": "IN",
+                "CODE": "ASP123"
+            },
+            {
+                "RXCUI": "789012",
+                "RXAUI": "210987",
+                "STR": "Ibuprofen",
+                "SAB": "RXNORM",
+                "TTY": "IN",
+                "CODE": "IBU456"
+            }
+        ]
+    }
+}
