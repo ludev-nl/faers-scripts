@@ -3,6 +3,7 @@
 *.pdf
 .venv
 faersData/
+faers_data/
 
 # ======== Latex auxiliary files git ignore
 *.tar.gz

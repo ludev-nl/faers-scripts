@@ -1,5 +1,3 @@
-LICENSE
-README.md
 pyproject.toml
 src/__init__.py
 src/__main__.py
@@ -15,7 +13,3 @@ src/faers_pipeline.egg-info/SOURCES.txt
 src/faers_pipeline.egg-info/dependency_links.txt
 src/faers_pipeline.egg-info/requires.txt
 src/faers_pipeline.egg-info/top_level.txt
-tests/test_check_directories.py
-tests/test_check_jsons.py
-tests/test_download_files_from_faers.py
-tests/test_option.py
