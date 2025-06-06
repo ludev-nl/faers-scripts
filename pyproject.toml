@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dependencies = [
+  "psycopg",
+  "pytest",
+]
+name = "faers_pipeline"
+version = "0.1.0"
+description = "FAERS data pipeline"
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
