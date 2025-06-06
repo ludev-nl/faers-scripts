@@ -1,0 +1,9 @@
+__init__
+__main__
+check_directories
+check_jsons
+constants
+download_files_from_faers
+error
+option
+prompt
