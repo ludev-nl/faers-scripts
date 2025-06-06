@@ -9,18 +9,9 @@ import time
 import sys
 import chardet
 
-from src/import
+from error import get_logger, fatal_error
 
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("setup_faers_execution.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 # --- Configuration ---
 CONFIG_FILE = "config.json"

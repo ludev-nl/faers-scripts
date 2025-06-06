@@ -7,3 +7,4 @@ download_files_from_faers
 error
 option
 prompt
+setup_faers
