@@ -19,6 +19,6 @@ SQL_PATH = PROJECT_ROOT / 'sql'
 #TODO: make this work again
 # obtain values from option file
 #ROOT_DATA_DIR = get_option_from_json(
-#    str(OPTIONS_DIR), 
+#    str(OPTIONS_DIR),
 #    "root_data_dir"
 #)
