@@ -6,7 +6,7 @@
           "isr": "bigint",
           "drug_seq": "bigint",
           "role_cod": "varchar(2)",
-          "drugname": "varchar(500)",
+          "drugname": "varchar(1000)",
           "val_vbm": "int",
           "route": "varchar(70)",
           "dose_vbm": "varchar(300)",
@@ -24,7 +24,7 @@
           "caseid": "bigint",
           "drug_seq": "bigint",
           "role_cod": "varchar(2)",
-          "drugname": "varchar(500)",
+          "drugname": "varchar(1000)",
           "val_vbm": "int",
           "route": "varchar(70)",
           "dose_vbm": "varchar(300)",
@@ -48,7 +48,7 @@
           "caseid": "bigint",
           "drug_seq": "bigint",
           "role_cod": "varchar(2)",
-          "drugname": "varchar(500)",
+          "drugname": "varchar(1000)",
           "prod_ai": "varchar(800)",
           "val_vbm": "int",
           "route": "varchar(70)",
@@ -73,7 +73,7 @@
           "caseid": "bigint",
           "drug_seq": "bigint",
           "role_cod": "varchar(2)",
-          "drugname": "varchar(500)",
+          "drugname": "varchar(1000)",
           "prod_ai": "varchar(800)",
           "val_vbm": "int",
           "route": "varchar(70)",
@@ -252,13 +252,14 @@
           "start_dt": "bigint",
           "end_dt": "bigint",
           "dur": "varchar(50)",
-          "dur_cod": "varchar(50)"
+          "dur_cod": "varchar(50)",
+          "unknown_field": "varchar(100)"
         }
       }
     ],
     "RPSR": [
       {
-        "date_range": ["2004Q1", "9999Q4"],
+        "date_range": ["2004Q1", "2012Q2"],
         "columns": {
           "isr": "bigint",
           "rpsr_cod": "varchar(100)"

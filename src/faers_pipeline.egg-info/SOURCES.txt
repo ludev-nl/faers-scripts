@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 LICENSE
 README.md
 pyproject.toml
@@ -21,9 +22,26 @@ src/faers_pipeline/s6.py
 src/faers_pipeline/s7.py
 src/faers_pipeline/s8.py
 src/faers_pipeline/s9.py
+=======
+pyproject.toml
+src/__init__.py
+src/__main__.py
+src/check_directories.py
+src/check_jsons.py
+src/constants.py
+src/download_files_from_faers.py
+src/error.py
+src/option.py
+src/prompt.py
+src/setup_faers.py
+>>>>>>> 36-bootstrapping-logging-framework
 src/faers_pipeline.egg-info/PKG-INFO
 src/faers_pipeline.egg-info/SOURCES.txt
 src/faers_pipeline.egg-info/dependency_links.txt
 src/faers_pipeline.egg-info/requires.txt
+<<<<<<< HEAD
 src/faers_pipeline.egg-info/top_level.txt
 src/faers_pipeline/utils/schema-generator.py
+=======
+src/faers_pipeline.egg-info/top_level.txt
+>>>>>>> 36-bootstrapping-logging-framework

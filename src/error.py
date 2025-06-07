@@ -6,10 +6,21 @@ import sys
 import traceback
 import logging
 import os
+<<<<<<< HEAD
 from datetime import datetime
 import zoneinfo
 
 LOG_DIR = os.path.abspath('faers/data/logs')
+=======
+import json
+from datetime import datetime
+import zoneinfo
+
+
+import traceback
+
+from constants import LOG_DIR
+>>>>>>> 36-bootstrapping-logging-framework
 rootLogger = None
 
 class InfoWarningFilter(logging.Filter):
@@ -20,6 +31,50 @@ class InfoWarningFilter(logging.Filter):
     def filter(self, record):
         return record.levelno < logging.ERROR
 
+<<<<<<< HEAD
+=======
+def make_logs_folder_on_our_own():
+    """
+    Checks if the logs directory exists, so we can start the logger.
+    This does not use the logging framework, since it is intended
+    to be run before the logger has been initialised and the program
+    actually starts running.
+    """
+    config_path = os.path.join('config', 'general_options.json')
+
+    if not os.path.exists(config_path):
+        print(f"The configuration file {config_path} does not exist.")
+        print(f"Please make sure you are calling from the right folder.")
+        return
+
+    try:
+        with open(config_path, 'r') as config_file:
+            config_data = json.load(config_file)
+            root_data_dir = config_data.get('root_data_dir', None)
+
+            if root_data_dir is None:
+                print(f"The 'root_data_dir' key"
+                      f"is not present in the configuration file.")
+                return
+
+            logs_dir = os.path.join(root_data_dir, 'logs')
+
+            if not os.path.exists(logs_dir):
+                os.makedirs(logs_dir, exist_ok=True)
+                print(f"Created logs directory at: {logs_dir}")
+            # Otherwise we fail silently. There
+            # is not problem if the logs folder already exists.
+
+    except json.JSONDecodeError:
+        print(f"Failed to parse the JSON in {config_path}.")
+    except PermissionError:
+        print(f"Permission denied when"
+              f"accessing or creating the logs directory.")
+    except OSError as e:
+        print(f"An error occurred while"
+              f"checking or creating the logs directory: {e}")
+
+>>>>>>> 36-bootstrapping-logging-framework
 def format_log_filename() -> str:
     """
     Formats the filename of the log file.
@@ -35,7 +90,14 @@ def setup_logger():
         - print >= CRITICAL to stderr
     """
     global rootLogger
+<<<<<<< HEAD
     if rootLogger is None:
+=======
+
+    if rootLogger is None:
+        # Ensure the log directory exists
+        make_logs_folder_on_our_own()
+>>>>>>> 36-bootstrapping-logging-framework
         log_file_name = format_log_filename()
 
         rootLogger = logging.getLogger()

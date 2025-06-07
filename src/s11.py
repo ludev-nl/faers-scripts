@@ -15,6 +15,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
 
+<<<<<<< HEAD
 # Logging Setup
 logging.basicConfig(
     level=logging.DEBUG,
@@ -25,6 +26,11 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+=======
+from error import get_logger, fatal_error
+
+logger = get_logger()
+>>>>>>> 36-bootstrapping-logging-framework
 
 def load_config():
     """Load configuration from config.json."""

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # TODO: add pdf option functionality. SKIP
 # test for all 4 schema variations
 # errors often propagate up to this file, and the source is hard to find. DONE
@@ -8,6 +9,8 @@
 # add file headers everywhere DONE
 # clean up all files
 
+=======
+>>>>>>> 36-bootstrapping-logging-framework
 import argparse
 import os
 
@@ -40,6 +43,11 @@ def main():
     )
     args = parser.parse_args()
 
+<<<<<<< HEAD
+=======
+    # This should be the first call to the logging framework,
+    # so this call with also properly set up the logger.
+>>>>>>> 36-bootstrapping-logging-framework
     log = get_logger()
 
     data_dir = get_option_from_json(OPTIONS_DIR, "root_data_dir")

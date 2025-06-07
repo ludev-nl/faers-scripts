@@ -8,6 +8,7 @@ from psycopg import errors as pg_errors
 from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
 
 
+<<<<<<< HEAD
 # --- Logging Setup ---
 logging.basicConfig(
     level=logging.INFO,
@@ -22,6 +23,15 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SQL_FILE_PATH = SQL_PATH / "s2_5.sql"
+=======
+from error import get_logger, fatal_error
+
+logger = get_logger()
+
+# --- Configuration ---
+CONFIG_FILE = "config.json"
+SQL_FILE_PATH = "s2_5.sql"
+>>>>>>> 36-bootstrapping-logging-framework
 MAX_RETRIES = 1
 RETRY_DELAY = 1  # seconds
 

@@ -1,1 +1,14 @@
+<<<<<<< HEAD
 faers_pipeline
+=======
+__init__
+__main__
+check_directories
+check_jsons
+constants
+download_files_from_faers
+error
+option
+prompt
+setup_faers
+>>>>>>> 36-bootstrapping-logging-framework

@@ -196,8 +196,16 @@ class DownloadFiles:
                     if file.endswith(('.pdf', '.doc')):
                         remove_file(os.path.join(self.target_dir, file))
 
+<<<<<<< HEAD
         # TODO maybe enable this at a later date. Needs
         # to have ascii_folder replaced.
+=======
+        # TODO
+        # We sometimes found even more auxiliary files, but
+        # are unable to find them later. We are leaving in some
+        # code which should remove this.
+        # Requires ascii_folder to be replaced.
+>>>>>>> 36-bootstrapping-logging-framework
 
         # Rest bestanden
         # rest_folder = os.path.join(self.root_dir, "rest")

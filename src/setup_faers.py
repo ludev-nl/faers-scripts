@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import psycopg
 import re
@@ -8,36 +7,14 @@ import tempfile
 import time
 import sys
 import chardet
-<<<<<<<< HEAD:src/s2_create_faers_a.py
-from constants import CONFIG_DIR, LOGS_DIR
-========
 
-from src/import
->>>>>>>> 36-bootstrapping-logging-framework:setup_faers.py
+from error import get_logger, fatal_error
 
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-<<<<<<<< HEAD:src/s2_create_faers_a.py
-        logging.FileHandler(LOGS_DIR / "s2_execution.log"),
-========
-        logging.FileHandler("setup_faers_execution.log"),
->>>>>>>> 36-bootstrapping-logging-framework:setup_faers.py
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 # --- Configuration ---
-<<<<<<<< HEAD:src/s2_create_faers_a.py
-CONFIG_FILE = CONFIG_DIR / "config.json"
-SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
-========
 CONFIG_FILE = "config.json"
 SCHEMA_FILE = "schema_config.json"
->>>>>>>> 36-bootstrapping-logging-framework:setup_faers.py
 SQL_FILE = "setup_faers.sql"
 SKIPPED_FILES_LOG = "skipped_files.log"
 
@@ -163,7 +140,7 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
 
 def create_table_if_not_exists(conn, table_name, schema):
-    """Create a table if it does not exist."""
+    """Create a table if it doesn’t exist."""
     try:
         with conn.cursor() as cur:
             schema_name = table_name.split('.')[0]
@@ -216,15 +193,7 @@ def import_data_file(conn, file_path, table_name, schema_name, year, quarter, sc
                 with open(temp_file, "rb") as f:
                     copy_sql = f"""
                     COPY {table_name} ({', '.join(schema.keys())})
-                    FROM STDIN WITH (
-                        FORMAT csv,
-                        DELIMITER '$',
-                        QUOTE E'\\b',  -- disables quoting
-                        ESCAPE E'\\b',  -- disables escaping
-                        HEADER true,
-                        NULL '',
-                        ENCODING 'UTF8'
-                    )
+                    FROM STDIN WITH (FORMAT csv, DELIMITER '$', HEADER true, NULL '', ENCODING 'UTF8')
                     """
                     with cur.copy(copy_sql) as copy:
                         while True:
@@ -255,20 +224,6 @@ def list_files_in_gcs_directory(bucket_name, directory_path):
     except Exception as e:
         logger.error(f"Error listing GCS files: {e}")
         return []
-    
-def execute_sql_file(conn, sql_file):
-    logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
-    try:
-        with open(sql_file, "r", encoding="utf-8") as f:
-            sql = f.read()
-        with conn.cursor() as cur:
-            cur.execute(sql)
-        conn.commit()
-        logger.info(f"Executed SQL file {sql_file}")
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Error executing {sql_file}: {e}")
-        raise
 
 def execute_sql_file(conn, sql_file):
     logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
