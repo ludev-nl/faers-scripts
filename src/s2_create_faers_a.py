@@ -11,15 +11,14 @@ import chardet
 from constants import CONFIG_DIR, LOGS_DIR
 from error import get_logger, fatal_error
 
-# TODO @ LEVI: how should these config options be merged?
 
 # --- Configuration ---
-CONFIG_FILE = CONFIG_DIR / "config.json"
-SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
-CONFIG_FILE = "config.json"
-SCHEMA_FILE = "schema_config.json"
-SQL_FILE = "setup_faers.sql"
-SKIPPED_FILES_LOG = "skipped_files.log"
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SCHEMA_FILE = os.path.join(CONFIG_DIR, "schema_config.json")
+SQL_FILE = os.path.join(SQL_PATH, "setup_faers.sql")
+SKIPPED_FILES_LOG = os.path.join(LOGS_DIR, "skipped_files.log")
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 logger = get_logger()
 

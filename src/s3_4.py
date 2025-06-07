@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 import os
 import subprocess
 import psycopg
@@ -83,7 +83,7 @@ except psycopg.Error as e:
     exit(1)
 except Exception as e:
     logging.error(f"An unexpected error occurred: {e}")
-=======
+
 import os
 import subprocess
 import psycopg
