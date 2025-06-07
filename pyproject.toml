@@ -6,11 +6,8 @@ build-backend = "setuptools.build_meta"
 dependencies = [
   "psycopg",
   "pytest",
-<<<<<<< HEAD
-=======
   "chardet",
   "google-cloud-storage"
->>>>>>> 36-bootstrapping-logging-framework
 ]
 name = "faers_pipeline"
 version = "0.1.0"

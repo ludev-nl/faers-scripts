@@ -2,14 +2,9 @@ Metadata-Version: 2.4
 Name: faers_pipeline
 Version: 0.1.0
 Summary: FAERS data pipeline
-<<<<<<< HEAD
 License-File: LICENSE
-Requires-Dist: psycopg
-Requires-Dist: pytest
-Dynamic: license-file
-=======
 Requires-Dist: psycopg
 Requires-Dist: pytest
 Requires-Dist: chardet
 Requires-Dist: google-cloud-storage
->>>>>>> 36-bootstrapping-logging-framework
+Dynamic: license-file

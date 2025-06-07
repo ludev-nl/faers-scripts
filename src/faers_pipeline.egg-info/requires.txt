@@ -1,7 +1,4 @@
 psycopg
 pytest
-<<<<<<< HEAD
-=======
 chardet
 google-cloud-storage
->>>>>>> 36-bootstrapping-logging-framework
