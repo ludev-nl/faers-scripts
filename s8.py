@@ -17,10 +17,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
-CONFIG_FILE = "config.json"
-S8_CONFIG_FILE = "config_s8.json"  # NEW: S8 specific config
-SQL_FILE_PATH = "s8.sql"
+# --- Configuration ---
+CONFIG_DIR = os.path.abspath(os.path.dirname(__file__))
+SQL_PATH = os.path.abspath(os.path.dirname(__file__))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+S8_CONFIG_FILE = os.path.join(CONFIG_DIR, "config_s8.json")  # NEW: S8 specific config
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s8.sql")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 

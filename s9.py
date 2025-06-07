@@ -17,9 +17,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
-CONFIG_FILE = "config.json"
-SQL_FILE_PATH = "s9.sql"
+# -- Configuration ---
+CONFIG_DIR = os.path.abspath(os.path.dirname(__file__))
+SQL_PATH = os.path.abspath(os.path.dirname(__file__))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s9.sql")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 

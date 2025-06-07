@@ -19,8 +19,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-CONFIG_FILE = "config.json"
-SCHEMA_FILE = "schema_config.json"
+CONFIG_DIR = os.path.abspath(os.path.dirname(__file__))
+SCHEMA_DIR = os.path.abspath(os.path.dirname(__file__))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SCHEMA_FILE = os.path.join(SCHEMA_DIR, "schema_config.json")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
