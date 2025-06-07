@@ -6,39 +6,17 @@ import re
 import time
 from psycopg import errors as pg_errors
 from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
+from error import get_logger, fatal_error
 
 # Configuration
 CONFIG_FILE = CONFIG_DIR / "config.json"
-S8_CONFIG_FILE = CONFIG_DIR / "config_s8.json"  # NEW: S8 specific config
+S8_CONFIG_FILE = CONFIG_DIR / "config_s8.json"  # TODO NEW: S8 specific config
 SQL_FILE_PATH = SQL_PATH / "s8.sql"
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
-<<<<<<< HEAD
-# Logging Setup
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(str(LOGS_DIR / "s8_execution.log"), encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-=======
-from error import get_logger, fatal_error
-
 logger = get_logger()
 
-# Configuration
-CONFIG_FILE = "config.json"
-S8_CONFIG_FILE = "config_s8.json"  # NEW: S8 specific config
-SQL_FILE_PATH = "s8.sql"
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
-
->>>>>>> 36-bootstrapping-logging-framework
 def load_config():
     """Load configuration from config.json."""
     try:
@@ -78,24 +56,11 @@ def create_config_temp_table(cur, s8_config):
                 config_data JSONB
             )
         """)
-<<<<<<< HEAD
-        
-=======
 
->>>>>>> 36-bootstrapping-logging-framework
         # Insert config data for each phase
         phases_inserted = 0
         for phase_name, phase_config in s8_config.items():
             cur.execute("""
-<<<<<<< HEAD
-                INSERT INTO temp_s8_config (phase_name, config_data) 
-                VALUES (%s, %s)
-            """, (phase_name, json.dumps(phase_config)))
-            phases_inserted += 1
-            
-        logger.info(f"Created temp config table with {phases_inserted} phases")
-        
-=======
                 INSERT INTO temp_s8_config (phase_name, config_data)
                 VALUES (%s, %s)
             """, (phase_name, json.dumps(phase_config)))
@@ -103,17 +68,12 @@ def create_config_temp_table(cur, s8_config):
 
         logger.info(f"Created temp config table with {phases_inserted} phases")
 
->>>>>>> 36-bootstrapping-logging-framework
         # Log what phases we have
         if phases_inserted > 0:
             cur.execute("SELECT phase_name FROM temp_s8_config ORDER BY phase_name")
             phase_names = [row[0] for row in cur.fetchall()]
             logger.info(f"Available phases: {', '.join(phase_names)}")
-<<<<<<< HEAD
-        
-=======
 
->>>>>>> 36-bootstrapping-logging-framework
     except Exception as e:
         logger.error(f"Error creating config table: {e}")
         raise
@@ -233,11 +193,7 @@ def run_s8_sql():
     """Execute s8.sql to create and clean DRUG_Mapper_Temp in faers_b schema."""
     config = load_config()
     s8_config = load_s8_config()  # NEW: Load S8 config
-<<<<<<< HEAD
-    
-=======
 
->>>>>>> 36-bootstrapping-logging-framework
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
     if not all(key in db_params for key in required_keys):
@@ -267,17 +223,10 @@ def run_s8_sql():
             logger.info("Connected to faersdatabase")
             conn.autocommit = True
             with conn.cursor() as cur:
-<<<<<<< HEAD
-                
-                # NEW: Create config temp table FIRST
-                create_config_temp_table(cur, s8_config)
-                
-=======
 
                 # NEW: Create config temp table FIRST
                 create_config_temp_table(cur, s8_config)
 
->>>>>>> 36-bootstrapping-logging-framework
                 if not os.path.exists(SQL_FILE_PATH):
                     logger.error(f"SQL file {SQL_FILE_PATH} not found")
                     raise FileNotFoundError(SQL_FILE_PATH)

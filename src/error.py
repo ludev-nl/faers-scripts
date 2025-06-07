@@ -6,21 +6,11 @@ import sys
 import traceback
 import logging
 import os
-<<<<<<< HEAD
-from datetime import datetime
-import zoneinfo
-
-LOG_DIR = os.path.abspath('faers/data/logs')
-=======
 import json
 from datetime import datetime
 import zoneinfo
 
-
-import traceback
-
 from constants import LOG_DIR
->>>>>>> 36-bootstrapping-logging-framework
 rootLogger = None
 
 class InfoWarningFilter(logging.Filter):
@@ -31,8 +21,6 @@ class InfoWarningFilter(logging.Filter):
     def filter(self, record):
         return record.levelno < logging.ERROR
 
-<<<<<<< HEAD
-=======
 def make_logs_folder_on_our_own():
     """
     Checks if the logs directory exists, so we can start the logger.
@@ -74,7 +62,6 @@ def make_logs_folder_on_our_own():
         print(f"An error occurred while"
               f"checking or creating the logs directory: {e}")
 
->>>>>>> 36-bootstrapping-logging-framework
 def format_log_filename() -> str:
     """
     Formats the filename of the log file.
@@ -90,14 +77,9 @@ def setup_logger():
         - print >= CRITICAL to stderr
     """
     global rootLogger
-<<<<<<< HEAD
-    if rootLogger is None:
-=======
-
     if rootLogger is None:
         # Ensure the log directory exists
         make_logs_folder_on_our_own()
->>>>>>> 36-bootstrapping-logging-framework
         log_file_name = format_log_filename()
 
         rootLogger = logging.getLogger()

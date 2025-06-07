@@ -10,7 +10,7 @@ files = [
 def execute_sql_file(filename: str, params: dict, conn: psycopg.Connection) -> None:
     with open(filename, 'r') as f:
         sql_code = f.read()
-    
+
     # PROBLEM: SQL Injection is a big risk here
     #TODO can we  Dynamically construct the COPY command with copy_expert()
     # instead? is that better?

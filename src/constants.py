@@ -3,10 +3,7 @@ Pipeline wide: Hard-coded constants.
 """
 
 import os
-<<<<<<< HEAD
-from pathlib import Path
-
-#from option import get_option_from_json
+from pathlib import Path # TODO use os, not pathlib!
 
 # These directories are hard-coded, the rest is specified
 # in the options file.
@@ -17,15 +14,7 @@ LOGS_DIR = PROJECT_ROOT / 'logs'
 DATA_DIR = PROJECT_ROOT / 'data'
 SQL_PATH = PROJECT_ROOT / 'sql'
 
-#TODO: make this work again
-# obtain values from option file
-#ROOT_DATA_DIR = get_option_from_json(
-#    str(OPTIONS_DIR),
-#    "root_data_dir"
-#)
-=======
-
-# from option import get_option_from_json
+#TODO: MERGE THESE OPTIONS. use os.path.abspath for paths!
 
 # These directories are hard-coded, the rest is specified
 # in the options file.
@@ -33,10 +22,3 @@ CONFIG_DIR = os.path.abspath('config')
 OPTIONS_DIR = os.path.abspath('config/general_options.json')
 # This is unfortunately hard coded.
 LOG_DIR = os.path.abspath('faers_data/logs')
-
-# obtain values from option file
-# ROOT_DATA_DIR = get_option_from_json(
-#     OPTIONS_DIR,
-#     "root_data_dir"
-# )
->>>>>>> 36-bootstrapping-logging-framework

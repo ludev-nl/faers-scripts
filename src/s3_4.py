@@ -39,8 +39,8 @@ try:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'faers_combined' 
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'faers_combined'
                     AND table_name = 'DEMO_Combined'
                 );
             """)
@@ -48,7 +48,7 @@ try:
             if not table_exists:
                 logging.error("Table faers_combined.\"DEMO_Combined\" does not exist. Please run s2-5.py first.")
                 exit(1)
-        
+
         psql_cmd = ["psql",
                     "-h", conn.info.host,
                     "-p", str(conn.info.port),
@@ -165,5 +165,4 @@ except psycopg.Error as e:
     exit(1)
 except Exception as e:
     logging.error(f"An unexpected error occurred: {e}")
->>>>>>> 36-bootstrapping-logging-framework
     exit(1)

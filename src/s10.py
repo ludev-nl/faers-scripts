@@ -5,28 +5,7 @@ import psycopg
 import re
 import time
 from psycopg import errors as pg_errors
-<<<<<<< HEAD
 from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
-
-# --- Configuration ---
-CONFIG_FILE = CONFIG_DIR / "config.json"
-SQL_FILE_PATH = SQL_PATH / "s10.sql"
-MAX_RETRIES = 1
-RETRY_DELAY = 1  # seconds
-
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(str(LOGS_DIR / "s10_execution.log")),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-=======
-
 from error import get_logger, fatal_error
 
 logger = get_logger()
@@ -37,7 +16,6 @@ SQL_FILE_PATH = "s10.sql"
 MAX_RETRIES = 1
 RETRY_DELAY = 1  # seconds
 
->>>>>>> 36-bootstrapping-logging-framework
 def load_config():
     """Load configuration from config.json."""
     try:
@@ -235,8 +213,4 @@ if __name__ == "__main__":
         run_s10_sql()
     except Exception as e:
         logger.error(f"Script execution failed: {e}")
-<<<<<<< HEAD
         exit(1)
-=======
-        exit(1)
->>>>>>> 36-bootstrapping-logging-framework

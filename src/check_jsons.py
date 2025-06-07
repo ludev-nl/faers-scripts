@@ -9,25 +9,13 @@ import json
 from error import fatal_error, get_logger
 log = get_logger()
 
-<<<<<<< HEAD
-def check_json_configs(config_dir):
-=======
 def check_json_configs(config_dir, given_json_file = None):
->>>>>>> 36-bootstrapping-logging-framework
     """
     Main function of this script.
     """
     if not os.path.exists(config_dir) or not os.path.isdir(config_dir):
         log.warning(f"Unable to find configuration directory in {config_dir}")
 
-<<<<<<< HEAD
-    # we already validate directories.json
-    # in check_directories.
-    json_files = [
-        f for f in os.listdir(config_dir)
-        if f.endswith('.json') and f != 'directories.json'
-    ]
-=======
     json_files = []
     if given_json_file is not None:
         json_files = [given_json_file]
@@ -38,7 +26,6 @@ def check_json_configs(config_dir, given_json_file = None):
             f for f in os.listdir(config_dir)
             if f.endswith('.json') and f != 'directories.json'
         ]
->>>>>>> 36-bootstrapping-logging-framework
 
     for json_file in json_files:
         file_path = os.path.join(config_dir, json_file)
@@ -47,9 +34,6 @@ def check_json_configs(config_dir, given_json_file = None):
             with open(file_path, 'r') as f:
                 json.load(f)
         except json.JSONDecodeError as e:
-<<<<<<< HEAD
-            raise(f"Invalid JSON format in {json_file}", e , 1)
-=======
             raise fatal_error(f"Invalid JSON format in {json_file}", e , 1)
         except FileNotFoundError as e:
             raise fatal_error(
@@ -57,7 +41,6 @@ def check_json_configs(config_dir, given_json_file = None):
         except Exception as e:
             raise fatal_error(
                 f"Failed to read JSON file", e, 1)
->>>>>>> 36-bootstrapping-logging-framework
 
     log.info("Configuration for the rest correctly initialised.")
 

@@ -8,38 +8,20 @@ import tempfile
 import time
 import sys
 import chardet
-<<<<<<<< HEAD:src/s2_create_faers_a.py
 from constants import CONFIG_DIR, LOGS_DIR
-========
+from error import get_logger, fatal_error
 
-from src/import
->>>>>>>> 36-bootstrapping-logging-framework:setup_faers.py
-
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-<<<<<<<< HEAD:src/s2_create_faers_a.py
-        logging.FileHandler(LOGS_DIR / "s2_execution.log"),
-========
-        logging.FileHandler("setup_faers_execution.log"),
->>>>>>>> 36-bootstrapping-logging-framework:setup_faers.py
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# TODO @ LEVI: how should these config options be merged?
 
 # --- Configuration ---
-<<<<<<<< HEAD:src/s2_create_faers_a.py
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
-========
 CONFIG_FILE = "config.json"
 SCHEMA_FILE = "schema_config.json"
->>>>>>>> 36-bootstrapping-logging-framework:setup_faers.py
 SQL_FILE = "setup_faers.sql"
 SKIPPED_FILES_LOG = "skipped_files.log"
+
+logger = get_logger()
 
 def check_psycopg_version():
     """Check psycopg version."""
@@ -255,7 +237,7 @@ def list_files_in_gcs_directory(bucket_name, directory_path):
     except Exception as e:
         logger.error(f"Error listing GCS files: {e}")
         return []
-    
+
 def execute_sql_file(conn, sql_file):
     logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
     try:
