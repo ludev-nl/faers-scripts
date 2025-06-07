@@ -12,8 +12,10 @@ from error import get_logger, fatal_error
 logger = get_logger()
 
 # --- Configuration ---
-CONFIG_FILE = "config.json"
-SCHEMA_FILE = "schema_config.json"
+CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+SQL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sql"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SCHEMA_FILE = os.path.join(CONFIG_DIR, "schema_config.json")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 

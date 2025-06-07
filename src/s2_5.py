@@ -9,17 +9,15 @@ from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
 from error import get_logger, fatal_error
 
 
-# TODO @ LEVI: how should these config options be merged?
+
 
 # --- Configuration ---
-CONFIG_FILE = CONFIG_DIR / "config.json"
-SQL_FILE_PATH = SQL_PATH / "s2_5.sql"
-
-# --- Configuration ---
-CONFIG_FILE = "config.json"
-SQL_FILE_PATH = "s2_5.sql"
-MAX_RETRIES = 1
-RETRY_DELAY = 1  # seconds
+CONFIG_DIR = os.path.abspath(os.path.dirname(__file__))
+SCHEMA_DIR = os.path.abspath(os.path.dirname(__file__))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SCHEMA_FILE = os.path.join(SCHEMA_DIR, "schema_config.json")
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 logger = get_logger()
 

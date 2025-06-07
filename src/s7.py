@@ -9,8 +9,10 @@ from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
 from error import get_logger, fatal_error
 
 # Configuration
-CONFIG_FILE =  CONFIG_DIR / "config.json"
-SQL_FILE_PATH = SQL_PATH / "s7.sql"
+CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+SQL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sql"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s7.sql")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 

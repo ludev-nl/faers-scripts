@@ -11,8 +11,10 @@ from error import get_logger, fatal_error
 logger = get_logger()
 
 # --- Configuration ---
-CONFIG_FILE = "config.json"
-SQL_FILE_PATH = "s10.sql"
+CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+SQL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sql"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s10.sql")
 MAX_RETRIES = 1
 RETRY_DELAY = 1  # seconds
 

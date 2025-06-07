@@ -9,9 +9,11 @@ from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
 from error import get_logger, fatal_error
 
 # Configuration
-CONFIG_FILE = CONFIG_DIR / "config.json"
-S8_CONFIG_FILE = CONFIG_DIR / "config_s8.json"  # TODO NEW: S8 specific config
-SQL_FILE_PATH = SQL_PATH / "s8.sql"
+CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+SQL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sql"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+S8_CONFIG_FILE = os.path.join(CONFIG_DIR, "config_s8.json")  # NEW: S8 specific config
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s8.sql")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
