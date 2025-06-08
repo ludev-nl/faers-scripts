@@ -6,7 +6,6 @@ constants
 download_files_from_faers
 error
 exec
-faers_pipeline
 main
 option
 prompt

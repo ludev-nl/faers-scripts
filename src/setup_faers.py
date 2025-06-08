@@ -1,10 +1,12 @@
 import json
 import logging
 import os
+from pathlib import Path
 import psycopg
 import re
 from google.cloud import storage
 import tempfile
+import traceback
 import time
 import sys
 import chardet
@@ -12,11 +14,9 @@ from constants import CONFIG_DIR, LOGS_DIR
 from error import get_logger, fatal_error
 
 # --- Configuration ---
-CONFIG_FILE = CONFIG_DIR / "config.json"
-SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
-CONFIG_FILE = "config.json"
-SCHEMA_FILE = "schema_config.json"
-SQL_FILE = "setup_faers.sql"
+CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.json"
+SCHEMA_FILE = Path(__file__).parent.parent / "config" / "schema_config.json"
+SQL_FILE = Path(__file__).parent.parent / "setup_faers.sql"
 SKIPPED_FILES_LOG = "skipped_files.log"
 
 logger = get_logger()
@@ -143,27 +143,11 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
 
 def create_table_if_not_exists(conn, table_name, schema):
+    """Create a table if it doesn’t exist."""
     try:
         with conn.cursor() as cur:
             schema_name = table_name.split('.')[0]
             cur.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
-            # Check if table exists and get its current structure
-            cur.execute(f"""
-                SELECT column_name, data_type
-                FROM information_schema.columns
-                WHERE table_schema = '{schema_name}' AND table_name = '{table_name.split('.')[1]}'
-                ORDER BY ordinal_position
-            """)
-            existing_cols = {row[0]: row[1] for row in cur.fetchall()}
-
-            # Compare with new schema
-            if existing_cols:
-                new_cols = set(schema.items())
-                current_cols = set(existing_cols.items())
-                if new_cols != current_cols:
-                    logger.warning(f"Schema mismatch for {table_name}. Dropping and recreating.")
-                    cur.execute(f"DROP TABLE {table_name}")
-
             columns_def = ", ".join([f"{col_name} {data_type}" for col_name, data_type in schema.items()])
             cur.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_def})")
         conn.commit()
@@ -244,13 +228,22 @@ def execute_sql_file(conn, sql_file):
     try:
         with open(sql_file, "r", encoding="utf-8") as f:
             sql = f.read()
+            logger.debug(f"SQL content preview: {sql[:500]}...")
         with conn.cursor() as cur:
+            logger.debug("Executing SQL...")
             cur.execute(sql)
         conn.commit()
         logger.info(f"Executed SQL file {sql_file}")
+    except FileNotFoundError as e:
+        logger.error(f"SQL file not found: {sql_file}. Error: {e}")
+        raise
+    except psycopg.Error as e:
+        conn.rollback()
+        logger.error(f"Database error executing {sql_file}: {str(e)}. Traceback: {traceback.format_exc()}")
+        raise
     except Exception as e:
         conn.rollback()
-        logger.error(f"Error executing {sql_file}: {e}")
+        logger.error(f"Unexpected error executing {sql_file}: {str(e)}. Traceback: {traceback.format_exc()}")
         raise
 
 def main():
@@ -331,5 +324,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# TODO @ Kai: read this line, you can delete it afterwards.
 

@@ -8,6 +8,7 @@ import logging
 import os
 import json
 from datetime import datetime
+from pathlib import Path
 import zoneinfo
 
 from constants import LOGS_DIR
@@ -122,9 +123,24 @@ def get_logger():
     | log = get_logger()
     | log.info("This is a message at the info level.")
     """
-    if rootLogger is None:
-        setup_logger()
-    return rootLogger
+    log_dir = Path("faers_data/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "setup_faers_execution.log"
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
+
+def fatal_error(message):
+    logger = get_logger()
+    logger.error(f"Fatal error: {message}")
+    sys.exit(1)
 
 def fatal_error(msg: str, err: Exception, exit_code: int = 1):
     """
