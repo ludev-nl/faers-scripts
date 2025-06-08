@@ -6,17 +6,27 @@ import os
 import sys
 import psycopg
 from io import BytesIO
+import re
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-# Import the module to test
-import s2
+# Use robust project root import pattern
+project_root = os.getcwd()
+sys.path.insert(0, project_root)
+
+try:
+    import s2
+except ImportError as e:
+    print(f"Error importing s2 module: {e}")
+    print(f"Project root path: {project_root}")
+    # Try alternative import paths
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    import s2
 
 
-class TestS2Functions(unittest.TestCase):
-    """Test cases for s2.py functions."""
+class TestS2Pipeline(unittest.TestCase):
+    """Comprehensive test suite for s2.py FAERS pipeline functions."""
 
     def setUp(self):
-        """Set up test fixtures."""
+        """Set up test fixtures before each test method."""
         self.sample_config = {
             "database": {
                 "host": "localhost",
@@ -39,6 +49,15 @@ class TestS2Functions(unittest.TestCase):
                         "caseid": "TEXT",
                         "caseversion": "INTEGER"
                     }
+                },
+                {
+                    "date_range": ["2024Q1", "9999Q4"],
+                    "columns": {
+                        "primaryid": "TEXT",
+                        "caseid": "TEXT",
+                        "caseversion": "INTEGER",
+                        "email": "TEXT"
+                    }
                 }
             ],
             "DRUG": [
@@ -53,6 +72,10 @@ class TestS2Functions(unittest.TestCase):
                 }
             ]
         }
+
+    # ============================================================================
+    # VERSION CHECK TESTS
+    # ============================================================================
 
     @patch('s2.psycopg.__version__', '3.1.0')
     @patch('s2.logger')
@@ -69,6 +92,10 @@ class TestS2Functions(unittest.TestCase):
         s2.check_psycopg_version()
         mock_logger.error.assert_called_with("This script requires psycopg 3. Found version %s", "2.9.0")
         mock_exit.assert_called_with(1)
+
+    # ============================================================================
+    # CONFIG LOADING TESTS
+    # ============================================================================
 
     @patch('builtins.open', new_callable=mock_open)
     @patch('s2.json.load')
@@ -112,6 +139,10 @@ class TestS2Functions(unittest.TestCase):
         self.assertEqual(result, self.sample_schema_config)
         mock_file.assert_called_once_with("schema_config.json", "r", encoding="utf-8")
         mock_logger.info.assert_called_with("Loaded schema configuration from schema_config.json")
+
+    # ============================================================================
+    # GCS FILE OPERATIONS TESTS
+    # ============================================================================
 
     @patch('s2.storage.Client')
     @patch('s2.logger')
@@ -160,14 +191,62 @@ class TestS2Functions(unittest.TestCase):
         mock_blob.download_to_filename.assert_called_once_with("/tmp/test-file.txt")
         mock_logger.info.assert_called_with("Downloaded test-file.txt to /tmp/test-file.txt")
 
-    def test_get_schema_for_period_found(self):
-        """Test getting schema for a valid period."""
+    @patch('s2.storage.Client')
+    @patch('s2.logger')
+    def test_list_files_in_gcs_directory_success(self, mock_logger, mock_storage_client):
+        """Test successful GCS directory listing."""
+        mock_client = Mock()
+        mock_bucket = Mock()
+        mock_blob1 = Mock()
+        mock_blob1.name = "test1.txt"
+        mock_blob2 = Mock()
+        mock_blob2.name = "test2.TXT"
+        mock_blob3 = Mock()
+        mock_blob3.name = "test3.csv"  # Should be filtered out
+        
+        mock_storage_client.return_value = mock_client
+        mock_client.bucket.return_value = mock_bucket
+        mock_bucket.list_blobs.return_value = [mock_blob1, mock_blob2, mock_blob3]
+        
+        result = s2.list_files_in_gcs_directory("test-bucket", "ascii/")
+        
+        expected = ["test1.txt", "test2.TXT"]
+        self.assertEqual(result, expected)
+        mock_bucket.list_blobs.assert_called_once_with(prefix="ascii/")
+
+    @patch('s2.storage.Client', side_effect=Exception("GCS error"))
+    @patch('s2.logger')
+    def test_list_files_in_gcs_directory_exception(self, mock_logger, mock_storage_client):
+        """Test GCS directory listing with exception."""
+        result = s2.list_files_in_gcs_directory("test-bucket", "ascii/")
+        
+        self.assertEqual(result, [])
+        mock_logger.error.assert_called_with("Error listing GCS files: GCS error")
+
+    # ============================================================================
+    # SCHEMA MANAGEMENT TESTS
+    # ============================================================================
+
+    def test_get_schema_for_period_found_early_period(self):
+        """Test getting schema for a valid early period."""
         result = s2.get_schema_for_period(self.sample_schema_config, "DEMO", 2020, 2)
         
         expected = {
             "primaryid": "TEXT",
             "caseid": "TEXT",
             "caseversion": "INTEGER"
+        }
+        self.assertEqual(result, expected)
+
+    def test_get_schema_for_period_found_later_period(self):
+        """Test getting schema for a valid later period with updated schema."""
+        result = s2.get_schema_for_period(self.sample_schema_config, "DEMO", 2024, 2)
+        
+        expected = {
+            "primaryid": "TEXT",
+            "caseid": "TEXT",
+            "caseversion": "INTEGER",
+            "email": "TEXT"
         }
         self.assertEqual(result, expected)
 
@@ -181,9 +260,9 @@ class TestS2Functions(unittest.TestCase):
     def test_get_schema_for_period_not_found_period(self):
         """Test getting schema for period outside range."""
         with self.assertRaises(ValueError) as context:
-            s2.get_schema_for_period(self.sample_schema_config, "DEMO", 2025, 1)
+            s2.get_schema_for_period(self.sample_schema_config, "DEMO", 2003, 1)
         
-        self.assertIn("No schema available for table DEMO in period 2025Q1", str(context.exception))
+        self.assertIn("No schema available for table DEMO in period 2003Q1", str(context.exception))
 
     def test_get_schema_for_period_open_end_range(self):
         """Test getting schema for table with open-ended date range."""
@@ -196,6 +275,10 @@ class TestS2Functions(unittest.TestCase):
             "drugname": "TEXT"
         }
         self.assertEqual(result, expected)
+
+    # ============================================================================
+    # DATABASE OPERATIONS TESTS
+    # ============================================================================
 
     @patch('s2.logger')
     def test_create_table_if_not_exists_success(self, mock_logger):
@@ -232,6 +315,10 @@ class TestS2Functions(unittest.TestCase):
         mock_conn.rollback.assert_called_once()
         mock_logger.error.assert_called_with("Error creating table test_schema.test_table: Database error")
 
+    # ============================================================================
+    # DATA VALIDATION TESTS
+    # ============================================================================
+
     @patch('builtins.open', new_callable=mock_open, read_data="col1$col2$col3\nval1$val2$val3\n")
     @patch('s2.logger')
     def test_validate_data_file_success(self, mock_logger, mock_file):
@@ -264,6 +351,10 @@ class TestS2Functions(unittest.TestCase):
         
         self.assertFalse(result)
         mock_logger.error.assert_called_with("Error validating /tmp/test.txt: File error")
+
+    # ============================================================================
+    # DATA IMPORT TESTS
+    # ============================================================================
 
     @patch('s2.get_schema_for_period')
     @patch('s2.create_table_if_not_exists')
@@ -305,37 +396,9 @@ class TestS2Functions(unittest.TestCase):
         
         mock_logger.error.assert_called_with("Validation failed for /tmp/test.txt")
 
-    @patch('s2.storage.Client')
-    @patch('s2.logger')
-    def test_list_files_in_gcs_directory_success(self, mock_logger, mock_storage_client):
-        """Test successful GCS directory listing."""
-        mock_client = Mock()
-        mock_bucket = Mock()
-        mock_blob1 = Mock()
-        mock_blob1.name = "test1.txt"
-        mock_blob2 = Mock()
-        mock_blob2.name = "test2.TXT"
-        mock_blob3 = Mock()
-        mock_blob3.name = "test3.csv"  # Should be filtered out
-        
-        mock_storage_client.return_value = mock_client
-        mock_client.bucket.return_value = mock_bucket
-        mock_bucket.list_blobs.return_value = [mock_blob1, mock_blob2, mock_blob3]
-        
-        result = s2.list_files_in_gcs_directory("test-bucket", "ascii/")
-        
-        expected = ["test1.txt", "test2.TXT"]
-        self.assertEqual(result, expected)
-        mock_bucket.list_blobs.assert_called_once_with(prefix="ascii/")
-
-    @patch('s2.storage.Client', side_effect=Exception("GCS error"))
-    @patch('s2.logger')
-    def test_list_files_in_gcs_directory_exception(self, mock_logger, mock_storage_client):
-        """Test GCS directory listing with exception."""
-        result = s2.list_files_in_gcs_directory("test-bucket", "ascii/")
-        
-        self.assertEqual(result, [])
-        mock_logger.error.assert_called_with("Error listing GCS files: GCS error")
+    # ============================================================================
+    # MAIN FUNCTION TESTS
+    # ============================================================================
 
     @patch('s2.check_psycopg_version')
     @patch('s2.load_config')
@@ -415,12 +478,11 @@ class TestFileNamePatternMatching(unittest.TestCase):
     
     def test_valid_file_patterns(self):
         """Test various valid file name patterns."""
-        import re
         pattern = r"([A-Z]+)(\d{2})Q(\d)\.txt"
         
         test_cases = [
             ("DEMO20Q1.txt", ("DEMO", "20", "1")),
-            ("drug21q2.txt", ("DRUG", "21", "2")),  # Case insensitive
+            ("DRUG21Q2.txt", ("DRUG", "21", "2")),
             ("REAC22Q4.txt", ("REAC", "22", "4")),
             ("OUTC23Q3.txt", ("OUTC", "23", "3"))
         ]
@@ -433,7 +495,6 @@ class TestFileNamePatternMatching(unittest.TestCase):
     
     def test_invalid_file_patterns(self):
         """Test invalid file name patterns."""
-        import re
         pattern = r"([A-Z]+)(\d{2})Q(\d)\.txt"
         
         invalid_files = [
@@ -450,6 +511,22 @@ class TestFileNamePatternMatching(unittest.TestCase):
                 match = re.match(pattern, filename, re.IGNORECASE)
                 self.assertIsNone(match)
 
+    def test_case_insensitive_matching(self):
+        """Test that file pattern matching is case insensitive."""
+        pattern = r"([A-Z]+)(\d{2})Q(\d)\.txt"
+        
+        case_variations = [
+            "demo20q1.txt",
+            "DEMO20Q1.TXT",
+            "Demo20Q1.txt",
+            "drug21q2.txt"
+        ]
+        
+        for filename in case_variations:
+            with self.subTest(filename=filename):
+                match = re.match(pattern, filename, re.IGNORECASE)
+                self.assertIsNotNone(match)
+
 
 if __name__ == "__main__":
     # Create a test suite
@@ -457,7 +534,7 @@ if __name__ == "__main__":
     suite = unittest.TestSuite()
     
     # Add test classes
-    suite.addTests(loader.loadTestsFromTestCase(TestS2Functions))
+    suite.addTests(loader.loadTestsFromTestCase(TestS2Pipeline))
     suite.addTests(loader.loadTestsFromTestCase(TestFileNamePatternMatching))
     
     # Run tests with verbose output
