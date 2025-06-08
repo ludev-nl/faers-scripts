@@ -46,7 +46,6 @@ def make_logs_folder_on_our_own():
                 return
 
             logs_dir = os.path.join(root_data_dir, 'logs')
-            print(f"DEBUG log dir: {logs_dir}")
 
             if not os.path.exists(logs_dir):
                 os.makedirs(logs_dir, exist_ok=True)
