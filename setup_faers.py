@@ -9,23 +9,19 @@ import time
 import sys
 import chardet
 from constants import CONFIG_DIR, LOGS_DIR
+from error import get_logger, fatal_error
 
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOGS_DIR / "s2_execution.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# TODO @ LEVI: how should these config options be merged?
 
 # --- Configuration ---
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
+CONFIG_FILE = "config.json"
+SCHEMA_FILE = "schema_config.json"
 SQL_FILE = "setup_faers.sql"
 SKIPPED_FILES_LOG = "skipped_files.log"
+
+logger = get_logger()
 
 def check_psycopg_version():
     """Check psycopg version."""
@@ -129,7 +125,6 @@ def preprocess_file(input_path, output_path):
         return False
 
 def get_schema_for_period(schema_config, table_name, year, quarter):
-    """Get schema for a table and period."""
     table_schemas = schema_config.get(table_name.upper())
     if not table_schemas:
         raise ValueError(f"No schema found for table {table_name}")
@@ -165,13 +160,12 @@ def create_table_if_not_exists(conn, table_name, schema):
         raise
 
 def validate_data_file(file_path, schema):
-    """Validate data file against schema."""
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             header = f.readline().strip().split('$')
             expected_columns = len(schema)
             if len(header) != expected_columns:
-                logger.error(f"Header in {file_path} has {len(header)} columns, expected {expected_columns}")
+                logger.error(f"Header in {file_path} has {len(header)} columns, expected {expected_columns}. Found: {header}, Expected: {list(schema.keys())}")
                 return False
             return True
     except Exception as e:
@@ -201,7 +195,7 @@ def import_data_file(conn, file_path, table_name, schema_name, year, quarter, sc
                 return
 
             with conn.cursor() as cur:
-                with open(file_path, "rb") as f:
+                with open(temp_file, "rb") as f:
                     copy_sql = f"""
                     COPY {table_name} ({', '.join(schema.keys())})
                     FROM STDIN WITH (
@@ -243,7 +237,21 @@ def list_files_in_gcs_directory(bucket_name, directory_path):
     except Exception as e:
         logger.error(f"Error listing GCS files: {e}")
         return []
-    
+
+def execute_sql_file(conn, sql_file):
+    logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
+    try:
+        with open(sql_file, "r", encoding="utf-8") as f:
+            sql = f.read()
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.commit()
+        logger.info(f"Executed SQL file {sql_file}")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error executing {sql_file}: {e}")
+        raise
+
 def execute_sql_file(conn, sql_file):
     logger.info(f"Executing SQL file from absolute path: {os.path.abspath(sql_file)}")
     try:
@@ -292,7 +300,7 @@ def main():
                 logger.info(f"No .txt files found in gs://{bucket_name}/{gcs_directory}")
                 return
 
-            for gcs_file_path in files_to_process:
+            for gcs_file_path in sorted(files_to_process):
                 match = re.match(r"([A-Z]+)(\d{2})Q(\d)\.txt", os.path.basename(gcs_file_path), re.IGNORECASE)
                 if not match:
                     logger.warning(f"Skipping file with unexpected name format: {gcs_file_path}")

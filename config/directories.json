@@ -1,0 +1,24 @@
+{
+  "data_directories": [
+    {
+      "name": "cache",
+      "path": "cache",
+      "subdirectories": {
+        "mappings": "cache/mappings",
+        "processed_files": "cache/processed_files",
+        "intermediate_results": "cache/intermediate_results"
+      }
+    },
+    {
+      "name": "logs",
+      "path": "logs",
+      "subdirectories": null
+    }
+  ],
+  "metadata": {
+    "last_updated": "",
+    "version": "1.4.0",
+    "description": "Updated configuration for FAERS data pipeline with dynamic directory mapping",
+    "notes": "Ensure root_data_dir exists and is accessible before running scripts."
+  }
+}

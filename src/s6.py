@@ -6,84 +6,30 @@ import re
 import time
 from psycopg import errors as pg_errors
 from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
+from error import get_logger, fatal_error
 
 # Configuration
-CONFIG_FILE = CONFIG_DIR / "config.json"
-S8_CONFIG_FILE = CONFIG_DIR / "config_s8.json"  # NEW: S8 specific config
-SQL_FILE_PATH = SQL_PATH / "s8.sql"
+CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+SQL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sql"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s6.sql")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
-# Logging Setup
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(str(LOGS_DIR / "s8_execution.log"), encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 def load_config():
     """Load configuration from config.json."""
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = json.load(f)
-        logger.info(f"Loaded configuration from {CONFIG_FILE}")
+        logger.info(f"Loaded configuration from %s", CONFIG_FILE)
         return config
     except FileNotFoundError:
-        logger.error(f"Config file {CONFIG_FILE} not found")
+        logger.error("Config file %s not found", CONFIG_FILE)
         raise
     except json.JSONDecodeError as e:
-        logger.error(f"Error decoding {CONFIG_FILE}: {e}")
-        raise
-
-def load_s8_config():
-    """Load S8-specific configuration from config_s8.json."""
-    try:
-        with open(S8_CONFIG_FILE, "r", encoding="utf-8") as f:
-            config = json.load(f)
-        logger.info(f"Loaded S8 configuration from {S8_CONFIG_FILE}")
-        return config
-    except FileNotFoundError:
-        logger.warning(f"S8 config file {S8_CONFIG_FILE} not found - will use empty config")
-        return {}
-    except json.JSONDecodeError as e:
-        logger.error(f"Error decoding {S8_CONFIG_FILE}: {e}")
-        raise
-
-def create_config_temp_table(cur, s8_config):
-    """Create temporary table with S8 configuration data."""
-    try:
-        # Drop and create temp table for config
-        cur.execute("DROP TABLE IF EXISTS temp_s8_config")
-        cur.execute("""
-            CREATE TEMP TABLE temp_s8_config (
-                phase_name TEXT PRIMARY KEY,
-                config_data JSONB
-            )
-        """)
-        
-        # Insert config data for each phase
-        phases_inserted = 0
-        for phase_name, phase_config in s8_config.items():
-            cur.execute("""
-                INSERT INTO temp_s8_config (phase_name, config_data) 
-                VALUES (%s, %s)
-            """, (phase_name, json.dumps(phase_config)))
-            phases_inserted += 1
-            
-        logger.info(f"Created temp config table with {phases_inserted} phases")
-        
-        # Log what phases we have
-        if phases_inserted > 0:
-            cur.execute("SELECT phase_name FROM temp_s8_config ORDER BY phase_name")
-            phase_names = [row[0] for row in cur.fetchall()]
-            logger.info(f"Available phases: {', '.join(phase_names)}")
-        
-    except Exception as e:
-        logger.error(f"Error creating config table: {e}")
+        logger.error("Error decoding %s: %s", CONFIG_FILE, e)
         raise
 
 def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
@@ -91,28 +37,31 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
     for attempt in range(1, retries + 1):
         try:
             cur.execute(statement)
-            logger.debug(f"Statement executed successfully on attempt {attempt}")
+            logger.debug("Statement executed successfully on attempt %d", attempt)
             return True
         except (pg_errors.OperationalError, pg_errors.DatabaseError) as e:
-            logger.warning(f"Attempt {attempt} failed: {e}")
+            logger.warning("Attempt %d failed: %s", attempt, e)
             if attempt < retries:
-                logger.info(f"Retrying in {delay} seconds...")
+                logger.info("Retrying in %d seconds...", delay)
                 time.sleep(delay)
             else:
-                logger.error(f"Failed after {retries} attempts: {e}")
+                logger.error("Failed after %d attempts: %s", retries, e)
                 raise
         except (pg_errors.DuplicateTable, pg_errors.DuplicateObject, pg_errors.DuplicateIndex) as e:
-            logger.info(f"Object already exists: {e}. Skipping.")
+            logger.info("Object already exists: %s. Skipping.", e)
             return True
         except pg_errors.Error as e:
-            logger.error(f"Database error: {e}")
+            logger.error("Database error: %s", e)
             raise
     return False
 
 def verify_tables():
-    """Verify that expected tables exist and log their row counts, warning if missing."""
+    """Verify that expected tables exist and log their row counts."""
     tables = [
-        "DRUG_Mapper_Temp"
+        "DRUG_Mapper",
+        "products_at_fda",
+        "IDD",
+        "manual_mapping"
     ]
     try:
         with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
@@ -129,16 +78,16 @@ def verify_tables():
                         cur.execute(f"SELECT COUNT(*) FROM faers_b.\"{table}\"")
                         count = cur.fetchone()[0]
                         if count == 0:
-                            logger.warning(f"Table faers_b.\"{table}\" exists but is empty")
+                            logger.warning("Table faers_b.\"%s\" exists but is empty", table)
                         else:
-                            logger.info(f"Table faers_b.\"{table}\" exists with {count} rows")
+                            logger.info("Table faers_b.\"%s\" exists with %d rows", table, count)
                     except pg_errors.Error as e:
-                        logger.warning(f"Table faers_b.\"{table}\" does not exist or is inaccessible: {e}")
+                        logger.warning("Table faers_b.\"%s\" does not exist or is inaccessible: %s", table, e)
     except Exception as e:
-        logger.error(f"Error verifying tables: {e}")
+        logger.error("Error verifying tables: %s", e)
 
 def parse_sql_statements(sql_script):
-    """Parse SQL script into individual statements, preserving DO blocks and function definitions."""
+    """Parse SQL script into individual statements, preserving DO blocks and functions."""
     statements = []
     current_statement = []
     in_do_block = False
@@ -163,7 +112,7 @@ def parse_sql_statements(sql_script):
             continue
 
         if copy_command.match(line):
-            logger.debug(f"Skipping \\copy command: {line[:100]}...")
+            logger.debug("Skipping \\copy command: %s", line[:100])
             continue
 
         if do_block_start.match(line) and not in_function:
@@ -197,18 +146,16 @@ def parse_sql_statements(sql_script):
 
     return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 
-def run_s8_sql():
-    """Execute s8.sql to create and clean DRUG_Mapper_Temp in faers_b schema."""
+def run_s6_sql():
+    """Execute s6.sql to create and populate mapping tables in faers_b schema."""
     config = load_config()
-    s8_config = load_s8_config()  # NEW: Load S8 config
-    
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
     if not all(key in db_params for key in required_keys):
-        logger.error(f"Missing required database parameters: {required_keys}")
+        logger.error("Missing required database parameters: %s", required_keys)
         raise ValueError("Missing database configuration")
 
-    logger.info(f"Connection parameters: {db_params}")
+    logger.info("Connection parameters: %s", db_params)
 
     try:
         with psycopg.connect(**db_params) as conn:
@@ -217,7 +164,7 @@ def run_s8_sql():
                 logger.info("Connected to PostgreSQL server")
                 cur.execute("SELECT version();")
                 pg_version = cur.fetchone()[0]
-                logger.info(f"PostgreSQL server version: {pg_version}")
+                logger.info("PostgreSQL server version: %s", pg_version)
 
                 cur.execute("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
                 if not cur.fetchone():
@@ -231,43 +178,41 @@ def run_s8_sql():
             logger.info("Connected to faersdatabase")
             conn.autocommit = True
             with conn.cursor() as cur:
-                
-                # NEW: Create config temp table FIRST
-                create_config_temp_table(cur, s8_config)
-                
                 if not os.path.exists(SQL_FILE_PATH):
-                    logger.error(f"SQL file {SQL_FILE_PATH} not found")
+                    logger.error("SQL file %s not found", SQL_FILE_PATH)
                     raise FileNotFoundError(SQL_FILE_PATH)
 
                 with open(SQL_FILE_PATH, "r", encoding="utf-8-sig") as f:
                     sql_script = f.read()
-                logger.info(f"Read SQL script from {SQL_FILE_PATH}")
+                logger.info("Read SQL script from %s", SQL_FILE_PATH)
 
                 statements = parse_sql_statements(sql_script)
 
                 for i, stmt in enumerate(statements, 1):
-                    logger.debug(f"Statement {i} (length: {len(stmt)}): {stmt[:1000]}...")
+                    logger.debug("Statement %d (length: %d): %s...", i, len(stmt), stmt[:1000])
 
                 for i, stmt in enumerate(statements, 1):
-                    logger.info(f"Executing statement {i}...")
+                    logger.info("Executing statement %d...", i)
                     try:
                         execute_with_retry(cur, stmt)
                     except pg_errors.Error as e:
-                        logger.warning(f"Error executing statement {i}: {e}")
-                        logger.warning(f"Failed statement: {stmt[:1000]}...")
+                        logger.warning("Error executing statement %d: %s", i, e)
+                        logger.warning("Failed statement: %s...", stmt[:1000])
                         continue
                     except Exception as e:
-                        logger.error(f"Unexpected error in statement {i}: {e}")
+                        logger.error("Unexpected error in statement %d: %s", i, e)
                         raise
 
                 logger.info("All statements executed successfully")
+                logger.info("Note: Data loading for products_at_fda and IDD must be done separately when files are available")
+
                 verify_tables()
 
     except pg_errors.Error as e:
-        logger.error(f"Database error: {e}")
+        logger.error("Database error: %s", e)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error("Unexpected error: %s", e)
         raise
     finally:
         if 'conn' in locals():
@@ -276,7 +221,7 @@ def run_s8_sql():
 
 if __name__ == "__main__":
     try:
-        run_s8_sql()
+        run_s6_sql()
     except Exception as e:
-        logger.error(f"Script execution failed: {e}")
+        logger.error("Script execution failed: %s", e)
         exit(1)

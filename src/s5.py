@@ -6,24 +6,18 @@ import re
 import time
 from psycopg import errors as pg_errors
 from constants import SQL_PATH, LOGS_DIR, CONFIG_DIR
+from error import get_logger, fatal_error
 
-
-# Configuration
-CONFIG_FILE =  CONFIG_DIR / "config.json"
-SQL_FILE_PATH = SQL_PATH / "s7.sql"
+#config
+CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+SQL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sql"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SQL_FILE_PATH = os.path.join(SQL_PATH, "s5.sql")
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
 
-# Logging Setup
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(str(LOGS_DIR / "s7_execution.log"), encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+
+logger = get_logger()
 
 def load_config():
     """Load configuration from config.json."""
@@ -65,7 +59,8 @@ def execute_with_retry(cur, statement, retries=MAX_RETRIES, delay=RETRY_DELAY):
 def verify_tables():
     """Verify that expected tables exist and log their row counts, warning if missing."""
     tables = [
-        "FAERS_Analysis_Summary"
+        "DRUG_Mapper", "RXNATOMARCHIVE", "RXNCONSO", "RXNREL", "RXNSAB",
+        "RXNSAT", "RXNSTY", "RXNDOC", "RXNCUICHANGES", "RXNCUI"
     ]
     try:
         with psycopg.connect(**{**load_config().get("database", {}), "dbname": "faersdatabase"}) as conn:
@@ -101,8 +96,6 @@ def parse_sql_statements(sql_script):
     comment_inline = re.compile(r'--.*$', re.MULTILINE)
     copy_command = re.compile(r'^\s*\\copy\s+', re.IGNORECASE)
 
-    # Remove BOM and comments
-    sql_script = sql_script.lstrip('\ufeff')
     sql_script = re.sub(comment_line, '', sql_script)
     sql_script = re.sub(comment_inline, '', sql_script)
 
@@ -141,8 +134,8 @@ def parse_sql_statements(sql_script):
 
     return [s.strip() for s in statements if s.strip() and not re.match(r'^\s*CREATE\s*DATABASE\s*', s, re.IGNORECASE)]
 
-def run_s7_sql():
-    """Execute s7.sql to create FAERS_Analysis_Summary in faers_b schema."""
+def run_s5_sql():
+    """Execute s5.sql to create DRUG_Mapper and RxNorm tables in faers_b schema."""
     config = load_config()
     db_params = config.get("database", {})
     required_keys = ["host", "port", "user", "dbname", "password"]
@@ -177,7 +170,7 @@ def run_s7_sql():
                     logger.error(f"SQL file {SQL_FILE_PATH} not found")
                     raise FileNotFoundError(SQL_FILE_PATH)
 
-                with open(SQL_FILE_PATH, "r", encoding="utf-8-sig") as f:
+                with open(SQL_FILE_PATH, "r", encoding="utf-8") as f:
                     sql_script = f.read()
                 logger.info(f"Read SQL script from {SQL_FILE_PATH}")
 
@@ -215,7 +208,7 @@ def run_s7_sql():
 
 if __name__ == "__main__":
     try:
-        run_s7_sql()
+        run_s5_sql()
     except Exception as e:
         logger.error(f"Script execution failed: {e}")
         exit(1)

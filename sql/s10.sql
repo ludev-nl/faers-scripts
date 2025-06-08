@@ -125,8 +125,8 @@ CREATE TABLE IF NOT EXISTS faers_b.manual_remapper (
 DO $$
 BEGIN
     IF EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
+        SELECT FROM pg_class
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b')
         AND relname = 'rxnconso'
     ) THEN
         CREATE INDEX IF NOT EXISTS idx_rxnconso_rxcui ON faers_b.rxnconso(rxcui) INCLUDE (rxaui, str, sab, tty, code);
@@ -137,8 +137,8 @@ BEGIN
     END IF;
 
     IF EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
+        SELECT FROM pg_class
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b')
         AND relname = 'rxnrel'
     ) THEN
         CREATE INDEX IF NOT EXISTS idx_rxnrel_rxcui ON faers_b.rxnrel(rxcui1, rxcui2) INCLUDE (rxaui1, rxaui2, rela);
@@ -149,8 +149,8 @@ BEGIN
     END IF;
 
     IF EXISTS (
-        SELECT FROM pg_class 
-        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b') 
+        SELECT FROM pg_class
+        WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'faers_b')
         AND relname = 'drug_mapper'
     ) THEN
         CREATE INDEX IF NOT EXISTS idx_drug_mapper_remapping ON faers_b.drug_mapper(remapping_rxcui, remapping_rxaui) INCLUDE (drug_id, remapping_notes);
@@ -167,7 +167,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper'
     ) INTO table_exists;
 
@@ -211,7 +211,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper'
     ) INTO table_exists;
 
@@ -227,7 +227,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -237,7 +237,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -277,7 +277,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -293,7 +293,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'hopefully_last_one_5_7_2021'
     ) INTO table_exists;
 
@@ -303,7 +303,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -341,7 +341,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -357,7 +357,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'hopefully_last_one_5_7_2021'
     ) INTO table_exists;
 
@@ -367,7 +367,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -411,7 +411,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -444,7 +444,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -460,7 +460,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -470,7 +470,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -518,7 +518,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -534,7 +534,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -544,7 +544,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -598,7 +598,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -614,7 +614,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -624,7 +624,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -676,7 +676,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -692,7 +692,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -702,7 +702,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -742,7 +742,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -758,7 +758,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -768,7 +768,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -819,7 +819,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -835,7 +835,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -872,7 +872,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -888,7 +888,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -898,7 +898,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -950,7 +950,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -966,7 +966,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -1010,7 +1010,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1026,7 +1026,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -1036,7 +1036,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -1069,7 +1069,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1085,7 +1085,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -1095,7 +1095,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnrel'
     ) INTO table_exists;
 
@@ -1138,7 +1138,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1171,7 +1171,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1212,7 +1212,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1228,7 +1228,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -1262,7 +1262,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1278,7 +1278,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -1316,7 +1316,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1332,7 +1332,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'rxnconso'
     ) INTO table_exists;
 
@@ -1371,7 +1371,7 @@ DECLARE
     row_count BIGINT;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 
@@ -1409,7 +1409,7 @@ DECLARE
     row RECORD;
 BEGIN
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'manual_remapper'
     ) INTO table_exists;
 
@@ -1425,7 +1425,7 @@ BEGIN
     END IF;
 
     SELECT EXISTS (
-        SELECT FROM information_schema.tables 
+        SELECT FROM information_schema.tables
         WHERE table_schema = 'faers_b' AND table_name = 'drug_mapper_2'
     ) INTO table_exists;
 

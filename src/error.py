@@ -6,10 +6,11 @@ import sys
 import traceback
 import logging
 import os
+import json
 from datetime import datetime
 import zoneinfo
 
-LOG_DIR = os.path.abspath('faers/data/logs')
+from constants import LOGS_DIR
 rootLogger = None
 
 class InfoWarningFilter(logging.Filter):
@@ -19,6 +20,48 @@ class InfoWarningFilter(logging.Filter):
     """
     def filter(self, record):
         return record.levelno < logging.ERROR
+
+def make_logs_folder_on_our_own():
+    """
+    Checks if the logs directory exists, so we can start the logger.
+    This does not use the logging framework, since it is intended
+    to be run before the logger has been initialised and the program
+    actually starts running.
+    """
+    config_path = os.path.join('config', 'general_options.json')
+
+    if not os.path.exists(config_path):
+        print(f"The configuration file {config_path} does not exist.")
+        print(f"Please make sure you are calling from the right folder.")
+        return
+
+    try:
+        with open(config_path, 'r') as config_file:
+            config_data = json.load(config_file)
+            root_data_dir = config_data.get('root_data_dir', None)
+
+            if root_data_dir is None:
+                print(f"The 'root_data_dir' key"
+                      f"is not present in the configuration file.")
+                return
+
+            logs_dir = os.path.join(root_data_dir, 'logs')
+            print(f"DEBUG log dir: {logs_dir}")
+
+            if not os.path.exists(logs_dir):
+                os.makedirs(logs_dir, exist_ok=True)
+                print(f"Created logs directory at: {logs_dir}")
+            # Otherwise we fail silently. There
+            # is not problem if the logs folder already exists.
+
+    except json.JSONDecodeError:
+        print(f"Failed to parse the JSON in {config_path}.")
+    except PermissionError as e:
+        print(f"Permission denied when"
+              f"accessing or creating the logs directory: {e}")
+    except Exception as e:
+        print(f"An error occurred while"
+              f"checking or creating the logs directory: {e}")
 
 def format_log_filename() -> str:
     """
@@ -35,9 +78,12 @@ def setup_logger():
         - print >= CRITICAL to stderr
     """
     global rootLogger
-    if rootLogger is None:
-        log_file_name = format_log_filename()
 
+    # Ensure the log directory exists
+    make_logs_folder_on_our_own()
+    log_file_name = format_log_filename()
+
+    if rootLogger is None:
         rootLogger = logging.getLogger()
         rootLogger.setLevel(logging.DEBUG)
 
@@ -51,8 +97,13 @@ def setup_logger():
         consoleHandler.addFilter(InfoWarningFilter())
         rootLogger.addHandler(consoleHandler)
 
+        # Create the log file if it doesn't exist
+        log_file_path = f"{LOGS_DIR}/{log_file_name}.log"
+        with open(log_file_path, 'w') as f:
+            pass  # This creates the file if it doesn't exist
+
         fileHandler = logging.FileHandler(
-            "{0}/{1}.log".format(LOG_DIR, log_file_name))
+            "{0}/{1}.log".format(LOGS_DIR, log_file_name), delay = True)
         fileHandler.setFormatter(
             logging.Formatter(
                 "%(asctime)s [%(levelname)-8.8s] %(message)s")
