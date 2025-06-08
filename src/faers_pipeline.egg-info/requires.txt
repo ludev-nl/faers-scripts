@@ -1,4 +1,4 @@
-psycopg>=3.1
+psycopg
 pytest
 chardet
 google-cloud-storage
