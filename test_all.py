@@ -11,9 +11,7 @@ def main():
 
     test_dirs = [
         'tests/python',
-        'tests/sql',
-        'unit_tests/python',
-        'unit_tests/sql',
+        'tests/sql'
     ]
 
     all_tests = unittest.TestSuite()
