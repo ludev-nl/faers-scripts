@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 import zoneinfo
 
-from constants import LOG_DIR
+from constants import LOGS_DIR
 rootLogger = None
 
 class InfoWarningFilter(logging.Filter):
@@ -46,6 +46,7 @@ def make_logs_folder_on_our_own():
                 return
 
             logs_dir = os.path.join(root_data_dir, 'logs')
+            print(f"DEBUG log dir: {logs_dir}")
 
             if not os.path.exists(logs_dir):
                 os.makedirs(logs_dir, exist_ok=True)
@@ -55,10 +56,10 @@ def make_logs_folder_on_our_own():
 
     except json.JSONDecodeError:
         print(f"Failed to parse the JSON in {config_path}.")
-    except PermissionError:
+    except PermissionError as e:
         print(f"Permission denied when"
-              f"accessing or creating the logs directory.")
-    except OSError as e:
+              f"accessing or creating the logs directory: {e}")
+    except Exception as e:
         print(f"An error occurred while"
               f"checking or creating the logs directory: {e}")
 
@@ -77,11 +78,12 @@ def setup_logger():
         - print >= CRITICAL to stderr
     """
     global rootLogger
-    if rootLogger is None:
-        # Ensure the log directory exists
-        make_logs_folder_on_our_own()
-        log_file_name = format_log_filename()
 
+    # Ensure the log directory exists
+    make_logs_folder_on_our_own()
+    log_file_name = format_log_filename()
+
+    if rootLogger is None:
         rootLogger = logging.getLogger()
         rootLogger.setLevel(logging.DEBUG)
 
@@ -95,8 +97,13 @@ def setup_logger():
         consoleHandler.addFilter(InfoWarningFilter())
         rootLogger.addHandler(consoleHandler)
 
+        # Create the log file if it doesn't exist
+        log_file_path = f"{LOGS_DIR}/{log_file_name}.log"
+        with open(log_file_path, 'w') as f:
+            pass  # This creates the file if it doesn't exist
+
         fileHandler = logging.FileHandler(
-            "{0}/{1}.log".format(LOG_DIR, log_file_name))
+            "{0}/{1}.log".format(LOGS_DIR, log_file_name), delay = True)
         fileHandler.setFormatter(
             logging.Formatter(
                 "%(asctime)s [%(levelname)-8.8s] %(message)s")
