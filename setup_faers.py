@@ -148,11 +148,27 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
 
 def create_table_if_not_exists(conn, table_name, schema):
-    """Create a table if it doesn’t exist."""
     try:
         with conn.cursor() as cur:
             schema_name = table_name.split('.')[0]
             cur.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
+            # Check if table exists and get its current structure
+            cur.execute(f"""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = '{schema_name}' AND table_name = '{table_name.split('.')[1]}'
+                ORDER BY ordinal_position
+            """)
+            existing_cols = {row[0]: row[1] for row in cur.fetchall()}
+            
+            # Compare with new schema
+            if existing_cols:
+                new_cols = set(schema.items())
+                current_cols = set(existing_cols.items())
+                if new_cols != current_cols:
+                    logger.warning(f"Schema mismatch for {table_name}. Dropping and recreating.")
+                    cur.execute(f"DROP TABLE {table_name}")
+            
             columns_def = ", ".join([f"{col_name} {data_type}" for col_name, data_type in schema.items()])
             cur.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_def})")
         conn.commit()
