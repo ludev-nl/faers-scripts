@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import psycopg
 import re
@@ -7,16 +8,18 @@ import tempfile
 import time
 import sys
 import chardet
-
+from constants import CONFIG_DIR, LOGS_DIR
 from error import get_logger, fatal_error
 
-logger = get_logger()
-
 # --- Configuration ---
+CONFIG_FILE = CONFIG_DIR / "config.json"
+SCHEMA_FILE = CONFIG_DIR / "schema_config.json"
 CONFIG_FILE = "config.json"
 SCHEMA_FILE = "schema_config.json"
 SQL_FILE = "setup_faers.sql"
 SKIPPED_FILES_LOG = "skipped_files.log"
+
+logger = get_logger()
 
 def check_psycopg_version():
     """Check psycopg version."""
@@ -140,11 +143,27 @@ def get_schema_for_period(schema_config, table_name, year, quarter):
     raise ValueError(f"No schema available for table {table_name} in period {target_date}")
 
 def create_table_if_not_exists(conn, table_name, schema):
-    """Create a table if it doesn’t exist."""
     try:
         with conn.cursor() as cur:
             schema_name = table_name.split('.')[0]
             cur.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
+            # Check if table exists and get its current structure
+            cur.execute(f"""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = '{schema_name}' AND table_name = '{table_name.split('.')[1]}'
+                ORDER BY ordinal_position
+            """)
+            existing_cols = {row[0]: row[1] for row in cur.fetchall()}
+
+            # Compare with new schema
+            if existing_cols:
+                new_cols = set(schema.items())
+                current_cols = set(existing_cols.items())
+                if new_cols != current_cols:
+                    logger.warning(f"Schema mismatch for {table_name}. Dropping and recreating.")
+                    cur.execute(f"DROP TABLE {table_name}")
+
             columns_def = ", ".join([f"{col_name} {data_type}" for col_name, data_type in schema.items()])
             cur.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_def})")
         conn.commit()
@@ -168,27 +187,22 @@ def validate_data_file(file_path, schema):
         return False
 
 def import_data_file(conn, file_path, table_name, schema_name, year, quarter, schema_config, max_retries=3):
-    """Import data file into a table."""
     for attempt in range(max_retries):
         try:
             schema = get_schema_for_period(schema_config, schema_name, year, quarter)
             create_table_if_not_exists(conn, table_name, schema)
-
-            # Preprocess file to ensure UTF-8
             temp_file = f"{file_path}.utf8"
             if not preprocess_file(file_path, temp_file):
                 logger.error(f"Skipping {file_path} due to preprocessing failure")
                 with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
                     f.write(f"{file_path}: Preprocessing failed\n")
                 return
-
             if not validate_data_file(temp_file, schema):
                 logger.error(f"Validation failed for {temp_file}")
                 with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
                     f.write(f"{temp_file}: Validation failed\n")
                 os.remove(temp_file)
                 return
-
             with conn.cursor() as cur:
                 with open(temp_file, "rb") as f:
                     copy_sql = f"""
