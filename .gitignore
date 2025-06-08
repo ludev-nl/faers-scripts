@@ -3,6 +3,11 @@
 *.pdf
 .venv
 faersData/
+data/
+faers_data/
+!faers_data/INDI_medra_mappings.csv
+!faers_data/REAC_medra_mappings.csv
+!faers_data/reporter_countries.csv
 
 # ======== Latex auxiliary files git ignore
 *.tar.gz
@@ -68,9 +73,6 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
-
-# pkgdown site
-docs/
 
 # translation temp files
 po/*~

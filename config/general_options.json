@@ -1,0 +1,11 @@
+{
+  "should_cache": true,
+  "should_prompt_for_dl": false,
+  "root_data_dir": "faers_data",
+  "location_data_directories": "config/directories.json",
+  "metadata": {
+    "last_updated": "",
+    "version": "1.0.0",
+    "description": "Options set by the user."
+  }
+}

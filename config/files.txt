@@ -1,0 +1,46 @@
+-- TODO make this a json file
+-- contains refugees from directories.json
+-- these should be checked elsewhere if they exist,
+-- if they are even used.
+
+{
+  "data_files": {
+    "faers_ascii": {
+      "path": "ascii",
+      "files": [
+        "faers_ascii_2021q1.zip",
+        "faers_ascii_2021q2.zip",
+        "faers_ascii_2021q3.zip",
+        "faers_ascii_2021q4.zip"
+      ]
+    },
+    "meddra": {
+      "path": "auxiliary/meddra",
+      "files": [
+        "llt.asc",
+        "pt.asc",
+        "hlt.asc",
+        "hlgt.asc",
+        "soc.asc"
+      ]
+    },
+    "rxnorm": {
+      "path": "auxiliary/rxnorm",
+      "files": [
+        "rxnorm_drug_data.csv"
+      ]
+    },
+    "idd": {
+      "path": "auxiliary/idd",
+      "files": [
+        "IDD_V.1.xlsx"
+      ]
+    },
+    "fda_products": {
+      "path": "auxiliary/fda",
+      "files": [
+        "Products@FDA.csv"
+      ]
+    }
+  }
+}

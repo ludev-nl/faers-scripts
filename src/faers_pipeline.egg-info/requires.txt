@@ -1,0 +1,4 @@
+psycopg
+pytest
+chardet
+google-cloud-storage
