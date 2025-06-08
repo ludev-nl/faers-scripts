@@ -6,7 +6,7 @@
           "isr": "bigint",
           "drug_seq": "bigint",
           "role_cod": "varchar(2)",
-          "drugname": "varchar(1000)",
+          "drugname": "varchar(2000)",
           "val_vbm": "int",
           "route": "varchar(70)",
           "dose_vbm": "varchar(300)",
