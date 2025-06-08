@@ -10,10 +10,10 @@ def main():
     runner = unittest.TextTestRunner(verbosity=2)
 
     test_dirs = [
-        # 'tests/python',
+        'tests/python',
         'tests/sql',
-        # 'unit_tests/python',
-        # 'unit_tests/sql',
+        'unit_tests/python',
+        'unit_tests/sql',
     ]
 
     all_tests = unittest.TestSuite()
@@ -21,7 +21,7 @@ def main():
 
     for test_dir in test_dirs:
         if os.path.isdir(test_dir):
-            suite = loader.discover(start_dir=test_dir, pattern="test_*.py", top_level_dir=project_root)
+            suite = loader.discover(start_dir=test_dir, pattern="test*.py", top_level_dir=project_root)
             count = suite.countTestCases()
             print(f"Discovered {count} tests in {test_dir}")
             all_tests.addTests(suite)
@@ -35,7 +35,7 @@ def main():
     # Summary
     tests_passed = result.testsRun - len(result.errors) - len(result.failures) - len(result.skipped)
     print(f"\nAll tests complete. Total tests passed: {tests_passed} of {result.testsRun}")
-    
+
     if result.errors or result.failures:
         sys.exit(1)
 
