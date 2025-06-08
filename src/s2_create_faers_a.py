@@ -8,7 +8,7 @@ import tempfile
 import time
 import sys
 import chardet
-from constants import CONFIG_DIR, LOGS_DIR
+from constants import CONFIG_DIR, LOGS_DIR, SQL_PATH
 from error import get_logger, fatal_error
 
 
