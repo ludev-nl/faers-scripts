@@ -1,22 +1,28 @@
+# This is an alternative version of 's2.py' with 'setup_faers.sql' is the corresponding of 's2.sql'
+# 'setup_faers.sql' has an issue where the file must be deleted and recreated with the same contents and name and path but the file should not be saved in order for 'setup_faers.py' to successfully run  
+
 import json
+import logging
 import os
+from pathlib import Path
 import psycopg
 import re
 from google.cloud import storage
 import tempfile
+import traceback
 import time
 import sys
 import chardet
-
+from constants import CONFIG_DIR, LOGS_DIR
 from error import get_logger, fatal_error
 
-logger = get_logger()
-
 # --- Configuration ---
-CONFIG_FILE = "config.json"
-SCHEMA_FILE = "schema_config.json"
-SQL_FILE = "setup_faers.sql"
+CONFIG_FILE = Path(__file__).parent.parent / "config" / "config.json"
+SCHEMA_FILE = Path(__file__).parent.parent / "config" / "schema_config.json"
+SQL_FILE = Path(__file__).parent.parent / "sql" / "setup_faers.sql"
 SKIPPED_FILES_LOG = "skipped_files.log"
+
+logger = get_logger()
 
 def check_psycopg_version():
     """Check psycopg version."""
@@ -168,27 +174,22 @@ def validate_data_file(file_path, schema):
         return False
 
 def import_data_file(conn, file_path, table_name, schema_name, year, quarter, schema_config, max_retries=3):
-    """Import data file into a table."""
     for attempt in range(max_retries):
         try:
             schema = get_schema_for_period(schema_config, schema_name, year, quarter)
             create_table_if_not_exists(conn, table_name, schema)
-
-            # Preprocess file to ensure UTF-8
             temp_file = f"{file_path}.utf8"
             if not preprocess_file(file_path, temp_file):
                 logger.error(f"Skipping {file_path} due to preprocessing failure")
                 with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
                     f.write(f"{file_path}: Preprocessing failed\n")
                 return
-
             if not validate_data_file(temp_file, schema):
                 logger.error(f"Validation failed for {temp_file}")
                 with open(SKIPPED_FILES_LOG, "a", encoding="utf-8") as f:
                     f.write(f"{temp_file}: Validation failed\n")
                 os.remove(temp_file)
                 return
-
             with conn.cursor() as cur:
                 with open(temp_file, "rb") as f:
                     copy_sql = f"""
@@ -230,13 +231,22 @@ def execute_sql_file(conn, sql_file):
     try:
         with open(sql_file, "r", encoding="utf-8") as f:
             sql = f.read()
+            logger.debug(f"SQL content preview: {sql[:500]}...")
         with conn.cursor() as cur:
+            logger.debug("Executing SQL...")
             cur.execute(sql)
         conn.commit()
         logger.info(f"Executed SQL file {sql_file}")
+    except FileNotFoundError as e:
+        logger.error(f"SQL file not found: {sql_file}. Error: {e}")
+        raise
+    except psycopg.Error as e:
+        conn.rollback()
+        logger.error(f"Database error executing {sql_file}: {str(e)}. Traceback: {traceback.format_exc()}")
+        raise
     except Exception as e:
         conn.rollback()
-        logger.error(f"Error executing {sql_file}: {e}")
+        logger.error(f"Unexpected error executing {sql_file}: {str(e)}. Traceback: {traceback.format_exc()}")
         raise
 
 def main():
