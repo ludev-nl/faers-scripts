@@ -17,7 +17,7 @@ import s5
 
 
 class TestS5Execution(unittest.TestCase):
-    """Test cases for s5_execution.py script"""
+    """Test cases for s5.py script"""
     
     def setUp(self):
         """Set up test fixtures before each test method."""
@@ -66,7 +66,7 @@ class TestS5Execution(unittest.TestCase):
         """Test successful configuration loading"""
         mock_json_load.return_value = self.sample_config
         
-        result = s5_execution.load_config()
+        result = s5.load_config()
         
         self.assertEqual(result, self.sample_config)
         mock_file.assert_called_once_with("config.json", "r", encoding="utf-8")
@@ -78,7 +78,7 @@ class TestS5Execution(unittest.TestCase):
         mock_file.side_effect = FileNotFoundError()
         
         with self.assertRaises(FileNotFoundError):
-            s5_execution.load_config()
+            s5.load_config()
     
     @patch('builtins.open', new_callable=mock_open)
     @patch('json.load')
@@ -87,14 +87,14 @@ class TestS5Execution(unittest.TestCase):
         mock_json_load.side_effect = json.JSONDecodeError("Invalid JSON", "doc", 0)
         
         with self.assertRaises(json.JSONDecodeError):
-            s5_execution.load_config()
+            s5.load_config()
     
     def test_execute_with_retry_success_first_attempt(self):
         """Test successful execution on first attempt"""
         mock_cursor = MagicMock()
         mock_cursor.execute.return_value = None
         
-        result = s5_execution.execute_with_retry(mock_cursor, "SELECT 1;")
+        result = s5.execute_with_retry(mock_cursor, "SELECT 1;")
         
         self.assertTrue(result)
         mock_cursor.execute.assert_called_once_with("SELECT 1;")
@@ -110,7 +110,7 @@ class TestS5Execution(unittest.TestCase):
         ]
         
         with patch('time.sleep') as mock_sleep:
-            result = s5_execution.execute_with_retry(mock_cursor, "SELECT 1;", retries=3, delay=1)
+            result = s5.execute_with_retry(mock_cursor, "SELECT 1;", retries=3, delay=1)
         
         self.assertTrue(result)
         self.assertEqual(mock_cursor.execute.call_count, 3)
@@ -124,7 +124,7 @@ class TestS5Execution(unittest.TestCase):
         
         with patch('time.sleep'):
             with self.assertRaises(pg_errors.OperationalError):
-                s5_execution.execute_with_retry(mock_cursor, "SELECT 1;", retries=2, delay=0.1)
+                s5.execute_with_retry(mock_cursor, "SELECT 1;", retries=2, delay=0.1)
         
         self.assertEqual(mock_cursor.execute.call_count, 2)
     
@@ -133,7 +133,7 @@ class TestS5Execution(unittest.TestCase):
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = pg_errors.DuplicateTable("Table already exists")
         
-        result = s5_execution.execute_with_retry(mock_cursor, "CREATE TABLE test;")
+        result = s5.execute_with_retry(mock_cursor, "CREATE TABLE test;")
         
         self.assertTrue(result)
         mock_cursor.execute.assert_called_once()
@@ -144,11 +144,11 @@ class TestS5Execution(unittest.TestCase):
         mock_cursor.execute.side_effect = pg_errors.SyntaxError("Invalid SQL")
         
         with self.assertRaises(pg_errors.SyntaxError):
-            s5_execution.execute_with_retry(mock_cursor, "INVALID SQL;")
+            s5.execute_with_retry(mock_cursor, "INVALID SQL;")
         
         mock_cursor.execute.assert_called_once()
     
-    @patch('s5_execution.load_config')
+    @patch('s5.load_config')
     @patch('psycopg.connect')
     def test_verify_tables_schema_exists(self, mock_connect, mock_load_config):
         """Test table verification when schema exists"""
@@ -168,12 +168,12 @@ class TestS5Execution(unittest.TestCase):
         mock_connect.return_value.__enter__.return_value = mock_conn
         
         # Should not raise an exception
-        s5_execution.verify_tables()
+        s5.verify_tables()
         
         # Verify schema check was performed
         mock_cursor.execute.assert_any_call("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
     
-    @patch('s5_execution.load_config')
+    @patch('s5.load_config')
     @patch('psycopg.connect')
     def test_verify_tables_schema_missing(self, mock_connect, mock_load_config):
         """Test table verification when schema is missing"""
@@ -188,11 +188,11 @@ class TestS5Execution(unittest.TestCase):
         mock_connect.return_value.__enter__.return_value = mock_conn
         
         # Should not raise an exception, just log warning
-        s5_execution.verify_tables()
+        s5.verify_tables()
         
         mock_cursor.execute.assert_called_once_with("SELECT nspname FROM pg_namespace WHERE nspname = 'faers_b'")
     
-    @patch('s5_execution.load_config')
+    @patch('s5.load_config')
     @patch('psycopg.connect')
     def test_verify_tables_table_missing(self, mock_connect, mock_load_config):
         """Test table verification when some tables are missing"""
@@ -211,7 +211,7 @@ class TestS5Execution(unittest.TestCase):
         mock_connect.return_value.__enter__.return_value = mock_conn
         
         # Should not raise an exception, just log warning
-        s5_execution.verify_tables()
+        s5.verify_tables()
     
     def test_parse_sql_statements_basic(self):
         """Test basic SQL statement parsing"""
@@ -221,7 +221,7 @@ class TestS5Execution(unittest.TestCase):
         SELECT * FROM test1;
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         
         self.assertEqual(len(statements), 3)
         self.assertIn("CREATE TABLE test1", statements[0])
@@ -237,7 +237,7 @@ class TestS5Execution(unittest.TestCase):
         CREATE TABLE test2 (id INT);
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         
         self.assertEqual(len(statements), 2)
         # Comments should be removed
@@ -257,7 +257,7 @@ class TestS5Execution(unittest.TestCase):
         CREATE TABLE test2 (id INT);
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         
         self.assertEqual(len(statements), 3)
         # DO block should be kept as one statement
@@ -274,7 +274,7 @@ class TestS5Execution(unittest.TestCase):
         CREATE TABLE test2 (id INT);
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         
         self.assertEqual(len(statements), 2)
         # \\copy command should be skipped
@@ -289,7 +289,7 @@ class TestS5Execution(unittest.TestCase):
         CREATE DATABASE another_db;
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         
         self.assertEqual(len(statements), 1)
         self.assertIn("CREATE TABLE test1", statements[0])
@@ -297,9 +297,9 @@ class TestS5Execution(unittest.TestCase):
         for stmt in statements:
             self.assertNotIn("CREATE DATABASE", stmt)
     
-    @patch('s5_execution.load_config')
-    @patch('s5_execution.verify_tables')
-    @patch('s5_execution.execute_with_retry')
+    @patch('s5.load_config')
+    @patch('s5.verify_tables')
+    @patch('s5.execute_with_retry')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open)
     @patch('psycopg.connect')
@@ -323,24 +323,24 @@ class TestS5Execution(unittest.TestCase):
         mock_execute.return_value = True
         
         # Should not raise an exception
-        s5_execution.run_s5_sql()
+        s5.run_s5_sql()
         
         # Verify database creation was attempted
         mock_cursor.execute.assert_any_call("SELECT 1 FROM pg_database WHERE datname = 'faersdatabase'")
         mock_verify.assert_called_once()
         self.assertTrue(mock_execute.called)
     
-    @patch('s5_execution.load_config')
+    @patch('s5.load_config')
     def test_run_s5_sql_missing_config_keys(self, mock_load_config):
         """Test run_s5_sql with incomplete configuration"""
         mock_load_config.return_value = self.incomplete_config
         
         with self.assertRaises(ValueError) as cm:
-            s5_execution.run_s5_sql()
+            s5.run_s5_sql()
         
         self.assertIn("Missing database configuration", str(cm.exception))
     
-    @patch('s5_execution.load_config')
+    @patch('s5.load_config')
     @patch('os.path.exists')
     def test_run_s5_sql_missing_sql_file(self, mock_exists, mock_load_config):
         """Test run_s5_sql when SQL file is missing"""
@@ -356,9 +356,9 @@ class TestS5Execution(unittest.TestCase):
             mock_connect.return_value.__enter__.return_value = mock_conn
             
             with self.assertRaises(FileNotFoundError):
-                s5_execution.run_s5_sql()
+                s5.run_s5_sql()
     
-    @patch('s5_execution.load_config')
+    @patch('s5.load_config')
     @patch('psycopg.connect')
     def test_run_s5_sql_database_error(self, mock_connect, mock_load_config):
         """Test run_s5_sql with database connection error"""
@@ -366,10 +366,10 @@ class TestS5Execution(unittest.TestCase):
         mock_connect.side_effect = pg_errors.OperationalError("Connection failed")
         
         with self.assertRaises(pg_errors.OperationalError):
-            s5_execution.run_s5_sql()
+            s5.run_s5_sql()
     
-    @patch('s5_execution.load_config')
-    @patch('s5_execution.execute_with_retry')
+    @patch('s5.load_config')
+    @patch('s5.execute_with_retry')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open)
     @patch('psycopg.connect')
@@ -391,7 +391,7 @@ class TestS5Execution(unittest.TestCase):
         mock_execute.side_effect = [True, pg_errors.SyntaxError("Invalid SQL")]
         
         # Should continue execution despite errors
-        s5_execution.run_s5_sql()
+        s5.run_s5_sql()
         
         # Both statements should have been attempted
         self.assertEqual(mock_execute.call_count, 2)
@@ -399,10 +399,10 @@ class TestS5Execution(unittest.TestCase):
     def test_logger_configuration(self):
         """Test that logger is configured correctly"""
         # The logger should be configured when the module is imported
-        logger = s5_execution.logger
+        logger = s5.logger
         
-        self.assertEqual(logger.name, "s5_execution")
-        self.assertEqual(logger.level, s5_execution.logging.DEBUG)
+        self.assertEqual(logger.name, "s5")
+        self.assertEqual(logger.level, s5.logging.DEBUG)
         
         # Should have both file and stream handlers
         handler_types = [type(h).__name__ for h in logger.handlers]
@@ -411,7 +411,7 @@ class TestS5Execution(unittest.TestCase):
 
 
 class TestS5ExecutionIntegration(unittest.TestCase):
-    """Integration tests for s5_execution.py"""
+    """Integration tests for s5.py"""
     
     def setUp(self):
         """Set up integration test environment"""
@@ -450,15 +450,15 @@ class TestS5ExecutionIntegration(unittest.TestCase):
         
         try:
             # Temporarily replace the config file path
-            original_config_file = s5_execution.CONFIG_FILE
-            s5_execution.CONFIG_FILE = temp_config_path
+            original_config_file = s5.CONFIG_FILE
+            s5.CONFIG_FILE = temp_config_path
             
-            loaded_config = s5_execution.load_config()
+            loaded_config = s5.load_config()
             self.assertEqual(loaded_config, config_data)
             
         finally:
             # Restore original config file path and clean up
-            s5_execution.CONFIG_FILE = original_config_file
+            s5.CONFIG_FILE = original_config_file
             os.unlink(temp_config_path)
     
     @unittest.skipUnless(os.getenv("RUN_INTEGRATION_TESTS"), "Integration tests disabled")
@@ -493,7 +493,7 @@ class TestS5ExecutionIntegration(unittest.TestCase):
             temp_sql_path = f.name
         
         try:
-            statements = s5_execution.parse_sql_statements(sql_content)
+            statements = s5.parse_sql_statements(sql_content)
             
             # Should have 4 statements: CREATE SCHEMA, CREATE TABLE, DO block, SELECT
             self.assertEqual(len(statements), 4)
@@ -516,16 +516,16 @@ class TestS5ExecutionEdgeCases(unittest.TestCase):
         mock_cursor.execute.side_effect = pg_errors.OperationalError("Error")
         
         with self.assertRaises(pg_errors.OperationalError):
-            s5_execution.execute_with_retry(mock_cursor, "SELECT 1;", retries=0)
+            s5.execute_with_retry(mock_cursor, "SELECT 1;", retries=0)
         
         mock_cursor.execute.assert_called_once()
     
     def test_parse_sql_statements_empty_input(self):
         """Test SQL parsing with empty input"""
-        statements = s5_execution.parse_sql_statements("")
+        statements = s5.parse_sql_statements("")
         self.assertEqual(statements, [])
         
-        statements = s5_execution.parse_sql_statements("   \n\n   ")
+        statements = s5.parse_sql_statements("   \n\n   ")
         self.assertEqual(statements, [])
     
     def test_parse_sql_statements_only_comments(self):
@@ -536,7 +536,7 @@ class TestS5ExecutionEdgeCases(unittest.TestCase):
         -- Final comment
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         self.assertEqual(statements, [])
     
     def test_parse_sql_statements_malformed_do_block(self):
@@ -548,23 +548,23 @@ class TestS5ExecutionEdgeCases(unittest.TestCase):
         -- Missing END $$
         """
         
-        statements = s5_execution.parse_sql_statements(sql)
+        statements = s5.parse_sql_statements(sql)
         
         # Should still return something, even if malformed
         self.assertGreater(len(statements), 0)
     
     def test_verify_tables_connection_error(self):
         """Test verify_tables with connection error"""
-        with patch('s5_execution.load_config') as mock_load_config:
+        with patch('s5.load_config') as mock_load_config:
             mock_load_config.return_value = {"database": {}}
             
             with patch('psycopg.connect') as mock_connect:
                 mock_connect.side_effect = pg_errors.OperationalError("Connection failed")
                 
                 # Should not raise exception, just log error
-                s5_execution.verify_tables()
+                s5.verify_tables()
     
-    @patch('s5_execution.run_s5_sql')
+    @patch('s5.run_s5_sql')
     def test_main_execution_success(self, mock_run_s5):
         """Test main execution path success"""
         mock_run_s5.return_value = None
@@ -572,12 +572,12 @@ class TestS5ExecutionEdgeCases(unittest.TestCase):
         # Capture exit code
         with patch('sys.exit') as mock_exit:
             # Import and run the main block
-            exec(compile(open('s5_execution.py').read(), 's5_execution.py', 'exec'))
+            exec(compile(open('s5.py').read(), 's5.py', 'exec'))
             
             # Should not call exit with error code
             mock_exit.assert_not_called()
     
-    @patch('s5_execution.run_s5_sql')
+    @patch('s5.run_s5_sql')
     def test_main_execution_failure(self, mock_run_s5):
         """Test main execution path failure"""
         mock_run_s5.side_effect = Exception("Test error")
@@ -585,7 +585,7 @@ class TestS5ExecutionEdgeCases(unittest.TestCase):
         with patch('sys.exit') as mock_exit:
             # This would be the main block execution
             try:
-                s5_execution.run_s5_sql()
+                s5.run_s5_sql()
             except Exception:
                 # Simulate the exception handling in main
                 mock_exit(1)
@@ -595,7 +595,7 @@ class TestS5ExecutionEdgeCases(unittest.TestCase):
 
 if __name__ == '__main__':
     # Set up test environment
-    print("Running s5_execution.py unit tests...")
+    print("Running s5.py unit tests...")
     print("This tests the Python script that executes s5.sql with retry logic")
     print("For integration tests, set environment variables:")
     print("  TEST_DB_HOST, TEST_DB_USER, TEST_DB_NAME, TEST_DB_PASSWORD")
