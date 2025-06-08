@@ -100,7 +100,7 @@ BEGIN
                         primaryid::BIGINT, caseid::BIGINT, caseversion, i_f_cod, event_dt, mfr_dt, init_fda_dt, fda_dt,
                         rept_cod, auth_num, mfr_num, mfr_sndr, lit_ref, age, age_cod, age_grp, gndr_cod,
                         e_sub, wt, wt_cod, rept_dt, to_mfr, occp_cod, reporter_country, occr_country,
-                        format(''%%sQ%%s'', rec.year, rec.quarter)
+                        format(''%sQ%s'', rec.year, rec.quarter)
                     FROM %s
                     ON CONFLICT DO NOTHING;
                 ', combined_table, table_name);
@@ -115,7 +115,7 @@ BEGIN
                         primaryid::BIGINT, caseid::BIGINT, drug_seq, role_cod, drugname, prod_ai, val_vbm, route, dose_vbm,
                         cum_dose_chr, cum_dose_unit, dechal, rechal, lot_num, exp_dt, nda_num, dose_amt,
                         dose_unit, dose_form, dose_freq,
-                        format(''%%sQ%%s'', rec.year, rec.quarter)
+                        format(''%sQ%s'', rec.year, rec.quarter)
                     FROM %s
                     ON CONFLICT DO NOTHING;
                 ', combined_table, table_name);
