@@ -2,6 +2,8 @@ import unittest
 import os
 import sys
 import subprocess
+import io
+import re
 
 def count_pytest_tests(test_dir):
     """Count the number of collected tests from pytest"""
@@ -19,8 +21,24 @@ def count_pytest_tests(test_dir):
         print(f"Error during pytest collection: {e}")
         return 0
 
+class TestResultSummary:
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+        self.skipped = 0
+
+    def summarize_unittest(self, result):
+        self.failed = len(result.failures) + len(result.errors)
+        self.skipped = len(result.skipped)
+        self.passed = result.testsRun - self.failed - self.skipped
+
+    def print_summary(self, label):
+        print(f"\n--- {label.upper()} TEST SUMMARY ---")
+        print(f"Passed : {self.passed}")
+        print(f"Failed : {self.failed}")
+        print(f"Skipped: {self.skipped}")
+
 def main():
-    # Set project root to this script’s directory
     project_root = os.path.abspath(os.path.dirname(__file__))
     print("Project root path:", project_root)
 
@@ -50,11 +68,43 @@ def main():
     print("\nRUNNING PYTHON TESTS")
     all_tests = unittest.TestSuite()
     all_tests.addTests(python_tests)
-    unittest.TextTestRunner(verbosity=2).run(all_tests)
+    result_stream = io.StringIO()
+    runner = unittest.TextTestRunner(stream=result_stream, verbosity=2)
+    python_result = runner.run(all_tests)
+    print(result_stream.getvalue())
+    
+    # Summarize Python results
+    python_summary = TestResultSummary()
+    python_summary.summarize_unittest(python_result)
+    python_summary.print_summary("Python")
 
-    # Run SQL tests
+    # Run SQL tests via pytest
     print("\nRUNNING SQL TESTS VIA PYTEST")
-    subprocess.run(["pytest", "unit_tests/sql", "-v"])
+    try:
+        result = subprocess.run(
+            ["pytest", "unit_tests/sql", "-v", "--tb=short"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        print(result.stdout)
+
+        # Parse summary line at the end
+        sql_summary = TestResultSummary()
+        for line in result.stdout.splitlines():
+            match = re.search(r"(\d+) passed", line)
+            if match:
+                sql_summary.passed = int(match.group(1))
+            match = re.search(r"(\d+) failed", line)
+            if match:
+                sql_summary.failed = int(match.group(1))
+            match = re.search(r"(\d+) skipped", line)
+            if match:
+                sql_summary.skipped = int(match.group(1))
+        sql_summary.print_summary("SQL")
+
+    except Exception as e:
+        print(f"Error running SQL tests: {e}")
 
 if __name__ == "__main__":
     main()
